@@ -404,13 +404,13 @@ const LoginPage = () => {
           </button>
         </div>
 
-        {/* Admin Login Info */}
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg text-center">
-          <p className="text-sm text-gray-600">
-            <strong>Account Admin:</strong><br/>
-            Username: <code>admin</code><br/>
-            Password: <code>admin123</code>
-          </p>
+        {/* Logo Autoscuola */}
+        <div className="mt-6 text-center">
+          <img
+            src="/logo-autoscuola.png"
+            alt="Autoscuola Desenzanese"
+            className="mx-auto h-16 object-contain"
+          />
         </div>
       </div>
     </div>
@@ -559,9 +559,16 @@ const Dashboard = () => {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Esame Provinciale Brescia
-            </h1>
+            <div className="flex items-center space-x-3">
+              <img
+                src="/logo-autoscuola.png"
+                alt="Autoscuola Desenzanese"
+                className="h-10 object-contain"
+              />
+              <h1 className="text-2xl font-bold text-gray-900">
+                Esame Provinciale Brescia
+              </h1>
+            </div>
             <div className="flex items-center space-x-4">
               <span className="text-gray-600">
                 Benvenuto, {user?.username} {user?.is_admin && '👑'}
