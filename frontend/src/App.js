@@ -1,703 +1,1079 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, File, UploadFile, Form
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-import uuid
-from datetime import datetime
-import json
-import random
-import hashlib
+import React, { useState, useEffect, useContext, createContext } from 'react';
+import './App.css';
+import axios from 'axios';
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+// Auth Context
+const AuthContext = createContext();
 
-# Create the main app without a prefix
-app = FastAPI()
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(() => {
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+  }, [token]);
 
-security = HTTPBearer()
+  const login = async (username, password) => {
+    try {
+      const response = await axios.post(`${API}/auth/login`, { username, password });
+      const { token: newToken, username: userName, is_admin } = response.data;
+      const userData = { username: userName, is_admin: is_admin || false };
+      setToken(newToken);
+      setUser(userData);
+      localStorage.setItem('token', newToken);
+      localStorage.setItem('user', JSON.stringify(userData));
+      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+      return true;
+    } catch (error) {
+      console.error('Login failed:', error);
+      return false;
+    }
+  };
 
-# Define Models
-class User(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    username: str
-    password_hash: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    total_attempts: int = 0
-    is_admin: bool = False
+  const register = async (username, password) => {
+    try {
+      const response = await axios.post(`${API}/auth/register`, { username, password });
+      const { token: newToken } = response.data;
+      const userData = { username, is_admin: false };
+      setToken(newToken);
+      setUser(userData);
+      localStorage.setItem('token', newToken);
+      localStorage.setItem('user', JSON.stringify(userData));
+      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+      return true;
+    } catch (error) {
+      console.error('Registration failed:', error);
+      return false;
+    }
+  };
+
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    delete axios.defaults.headers.common['Authorization'];
+  };
+
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      await axios.post(`${API}/auth/change-password`, {
+        username: user.username,
+        current_password: currentPassword,
+        new_password: newPassword
+      });
+      return { success: true };
+    } catch (error) {
+      const message = error.response?.data?.detail || 'Errore durante il cambio password';
+      return { success: false, message };
+    }
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, token, login, register, logout, changePassword }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+// Admin Panel Component
+const AdminPanel = () => {
+  const [questionCounts, setQuestionCounts] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState({});
+  const [selectedFiles, setSelectedFiles] = useState({});
+  const { user } = useContext(AuthContext);
+
+  const subjects = [
+    "Geografia regionale",
+    "Normativa statale e regionale",
+    "Normativa comunale TAXI e NCC",
+    "Lingua Straniera - Inglese",
+    "Lingua Straniera - Francese",
+    "Lingua Straniera - Spagnolo",
+    "Lingua Straniera - Tedesco"
+  ];
+
+  useEffect(() => {
+    if (user?.is_admin) {
+      fetchQuestionCounts();
+    }
+  }, [user]);
+
+  const fetchQuestionCounts = async () => {
+    try {
+      const response = await axios.get(`${API}/admin/questions-count`);
+      setQuestionCounts(response.data);
+    } catch (error) {
+      console.error('Error fetching question counts:', error);
+    }
+  };
+
+  const handleFileSelect = (subject, file) => {
+    setSelectedFiles(prev => ({
+      ...prev,
+      [subject]: file
+    }));
+  };
+
+  const uploadQuestions = async (subject) => {
+    if (!selectedFiles[subject]) {
+      alert('Seleziona prima un file JSON');
+      return;
+    }
+
+    setLoading(true);
+    setUploadStatus(prev => ({
+      ...prev,
+      [subject]: { status: 'uploading', message: 'Caricamento in corso...' }
+    }));
+
+    try {
+      const formData = new FormData();
+      formData.append('subject', subject);
+      formData.append('questions_file', selectedFiles[subject]);
+
+      const response = await axios.post(`${API}/admin/upload-questions`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      setUploadStatus(prev => ({
+        ...prev,
+        [subject]: { status: 'success', message: response.data.message }
+      }));
+
+      // Clear selected file
+      setSelectedFiles(prev => ({
+        ...prev,
+        [subject]: null
+      }));
+
+      // Refresh counts
+      await fetchQuestionCounts();
+
+    } catch (error) {
+      const errorMessage = error.response?.data?.detail || 'Errore durante il caricamento';
+      setUploadStatus(prev => ({
+        ...prev,
+        [subject]: { status: 'error', message: errorMessage }
+      }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetToSampleQuestions = async () => {
+    if (!confirm('Sei sicuro di voler ripristinare le domande di esempio? Questo cancellerà tutte le domande caricate.')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await axios.post(`${API}/admin/reset-sample-questions`);
+      alert(response.data.message);
+      await fetchQuestionCounts();
+      setUploadStatus({});
+    } catch (error) {
+      alert('Errore durante il ripristino delle domande di esempio');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const previewQuestions = async (subject) => {
+    try {
+      const response = await axios.get(`${API}/admin/preview-questions/${encodeURIComponent(subject)}`);
+      
+      let previewText = `ANTEPRIMA - ${subject}\nTotale domande: ${response.data.total_questions}\n\n`;
+      
+      response.data.preview.forEach((q, i) => {
+        previewText += `${i + 1}. ${q.question_text}\n`;
+        q.options.forEach((option, j) => {
+          const marker = j === q.correct_answer ? '✓' : ' ';
+          previewText += `   ${String.fromCharCode(65 + j)}) ${option} ${marker}\n`;
+        });
+        previewText += '\n';
+      });
+
+      alert(previewText);
+    } catch (error) {
+      alert('Errore nel caricamento dell\'anteprima');
+    }
+  };
+
+  if (!user?.is_admin) {
+    return <div className="text-center py-8">Accesso non autorizzato</div>;
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
+        <div className="flex justify-between items-start mb-2">
+          <h1 className="text-3xl font-bold text-gray-800">
+            🔧 Pannello di Amministrazione
+          </h1>
+          <button
+            onClick={() => {
+              window.location.hash = '';
+              window.location.reload();
+            }}
+            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium whitespace-nowrap"
+          >
+            ← Torna alla Dashboard
+          </button>
+        </div>
+        <p className="text-gray-600 mb-6">
+          Carica i file JSON con le domande reali dell'esame per ogni argomento
+        </p>
+
+        {/* File Upload Instructions */}
+        <div className="bg-blue-50 p-4 rounded-lg mb-6">
+          <h3 className="font-semibold text-blue-800 mb-2">📋 Formato File JSON Richiesto:</h3>
+          <pre className="text-sm text-blue-700 bg-blue-100 p-3 rounded overflow-x-auto">
+{`[
+  {
+    "question_text": "Testo della domanda?",
+    "options": ["Opzione A", "Opzione B", "Opzione C", "Opzione D"],
+    "correct_answer": 1
+  }
+]`}
+          </pre>
+          <p className="text-sm text-blue-600 mt-2">
+            • <code>correct_answer</code> è l'indice della risposta corretta (0-3)<br/>
+            • Ogni file può contenere qualsiasi numero di domande<br/>
+            • Le domande esistenti per l'argomento saranno sostituite
+          </p>
+        </div>
+
+        {/* Current Questions Status */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {subjects.map((subject) => (
+            <div key={subject} className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-medium text-gray-800 text-sm mb-2">{subject}</h4>
+              <div className="text-2xl font-bold text-blue-600 mb-2">
+                {questionCounts[subject] || 0} domande
+              </div>
+              <button
+                onClick={() => previewQuestions(subject)}
+                disabled={!questionCounts[subject]}
+                className="text-sm text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+              >
+                👁 Anteprima
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Upload Section */}
+        <div className="space-y-6">
+          {subjects.map((subject) => (
+            <div key={subject} className="border border-gray-200 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                📚 {subject}
+              </h3>
+
+              <div className="flex flex-col sm:flex-row gap-4 items-start">
+                <div className="flex-1">
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={(e) => handleFileSelect(subject, e.target.files[0])}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  {selectedFiles[subject] && (
+                    <p className="text-sm text-gray-600 mt-2">
+                      File selezionato: {selectedFiles[subject].name}
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => uploadQuestions(subject)}
+                  disabled={loading || !selectedFiles[subject]}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? 'Caricamento...' : 'Carica'}
+                </button>
+              </div>
+
+              {/* Upload Status */}
+              {uploadStatus[subject] && (
+                <div className={`mt-4 p-3 rounded-lg ${
+                  uploadStatus[subject].status === 'success' ? 'bg-green-100 text-green-800' :
+                  uploadStatus[subject].status === 'error' ? 'bg-red-100 text-red-800' :
+                  'bg-blue-100 text-blue-800'
+                }`}>
+                  {uploadStatus[subject].message}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Reset to Sample Questions */}
+        <div className="mt-8 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+            🔄 Ripristina Domande di Esempio
+          </h3>
+          <p className="text-yellow-700 mb-4">
+            Questo ripristinerà le domande di esempio originali per tutti gli argomenti. 
+            Tutte le domande caricate saranno eliminate.
+          </p>
+          <button
+            onClick={resetToSampleQuestions}
+            disabled={loading}
+            className="bg-yellow-600 text-white px-6 py-2 rounded-lg hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+          >
+            Ripristina Domande di Esempio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Login Component
+const LoginPage = () => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { login, register } = useContext(AuthContext);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    const success = isLogin ? await login(username, password) : await register(username, password);
     
-class UserCreate(BaseModel):
-    username: str
-    password: str
-
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-class ChangePassword(BaseModel):
-    username: str
-    current_password: str
-    new_password: str
-
-class Question(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    subject: str  # Geografia, Normativa statale, Normativa comunale, Lingua Straniera
-    question_text: str
-    options: List[str]
-    correct_answer: int  # Index of correct option (0-3)
+    if (!success) {
+      setError(isLogin ? 'Login fallito. Controlla le credenziali.' : 'Registrazione fallita.');
+    }
     
-class QuizAttempt(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    quiz_type: str  # "free", "by_subject", "final_simulation"
-    subject: Optional[str] = None  # For subject-specific quizzes
-    questions: List[str]  # Question IDs
-    answers: List[int]  # User's answers (-1 for unanswered)
-    correct_answers: List[int]
-    score_by_subject: Dict[str, Dict[str, int]]  # {"Geografia": {"correct": 3, "total": 5}}
-    total_correct: int
-    total_questions: int
-    passed: bool
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    time_taken: Optional[int] = None  # in seconds
+    setLoading(false);
+  };
 
-class QuizStart(BaseModel):
-    quiz_type: str
-    subject: Optional[str] = None
-    language: Optional[str] = None
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-white rounded-xl shadow-2xl p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">
+            Esame Provinciale Brescia
+          </h1>
+          <p className="text-gray-600">
+            Preparazione per conducenti di servizi pubblici non di linea
+          </p>
+        </div>
 
-class QuizAnswer(BaseModel):
-    question_index: int
-    answer: int
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
+          </div>
 
-class QuizSubmit(BaseModel):
-    answers: List[int]  # -1 for unanswered
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
+          </div>
 
-class QuestionUpload(BaseModel):
-    subject: str
-    questions: List[Dict[str, Any]]
+          {error && (
+            <div className="text-red-600 text-sm text-center">{error}</div>
+          )}
 
-# Sample questions data
-# Fixed subjects (always part of the exam) and the 4 selectable foreign languages
-FIXED_SUBJECTS = ["Geografia regionale", "Normativa statale e regionale", "Normativa comunale TAXI e NCC"]
-LANGUAGE_OPTIONS = ["Inglese", "Francese", "Spagnolo", "Tedesco"]
-LANGUAGE_SUBJECTS = [f"Lingua Straniera - {lang}" for lang in LANGUAGE_OPTIONS]
-ALL_SUBJECTS = FIXED_SUBJECTS + LANGUAGE_SUBJECTS
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 disabled:opacity-50 font-medium transition-colors"
+          >
+            {loading ? 'Caricamento...' : (isLogin ? 'Accedi' : 'Registrati')}
+          </button>
+        </form>
 
-SAMPLE_QUESTIONS = {
-    "Geografia regionale": [
-        {
-            "question_text": "Qual è il capoluogo della provincia di Brescia?",
-            "options": ["Milano", "Brescia", "Bergamo", "Mantova"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "Quale lago si trova nella provincia di Brescia?",
-            "options": ["Lago di Como", "Lago di Garda", "Lago Maggiore", "Lago d'Iseo"],
-            "correct_answer": 3
-        },
-        {
-            "question_text": "Qual è la montagna più alta della provincia di Brescia?",
-            "options": ["Monte Rosa", "Adamello", "Monte Bianco", "Cervino"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "Quale valle è famosa per la produzione di vino Franciacorta?",
-            "options": ["Val Camonica", "Valle Trompia", "Franciacorta", "Valle Sabbia"],
-            "correct_answer": 2
-        },
-        {
-            "question_text": "Quale fiume attraversa la città di Brescia?",
-            "options": ["Adda", "Oglio", "Mella", "Chiese"],
-            "correct_answer": 2
-        }
-    ],
-    "Normativa statale e regionale": [
-        {
-            "question_text": "Qual è la velocità massima consentita nei centri abitati?",
-            "options": ["30 km/h", "40 km/h", "50 km/h", "60 km/h"],
-            "correct_answer": 2
-        },
-        {
-            "question_text": "Il conducente di taxi deve essere munito di:",
-            "options": ["Patente B", "Patente C", "Licenza comunale", "Tutte le precedenti"],
-            "correct_answer": 3
-        },
-        {
-            "question_text": "La revisione del veicolo deve essere effettuata ogni:",
-            "options": ["1 anno", "2 anni", "3 anni", "4 anni"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "L'assicurazione RCA è:",
-            "options": ["Facoltativa", "Obbligatoria", "Solo per taxi", "Solo per NCC"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "Il tachimetro deve essere tarato ogni:",
-            "options": ["6 mesi", "1 anno", "2 anni", "3 anni"],
-            "correct_answer": 2
-        }
-    ],
-    "Normativa comunale TAXI e NCC": [
-        {
-            "question_text": "La licenza taxi è valida per:",
-            "options": ["1 anno", "3 anni", "5 anni", "Tempo indeterminato"],
-            "correct_answer": 3
-        },
-        {
-            "question_text": "Il servizio NCC può essere prenotato:",
-            "options": ["Solo telefonicamente", "Solo online", "In qualsiasi modo", "Solo presso l'ufficio"],
-            "correct_answer": 2
-        },
-        {
-            "question_text": "Il taxi può sostare:",
-            "options": ["Ovunque", "Solo in posteggio", "Solo su chiamata", "In zone ZTL"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "La tariffa taxi viene stabilita da:",
-            "options": ["Il conducente", "Il comune", "La regione", "Lo stato"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "Il servizio NCC deve tornare in rimessa:",
-            "options": ["Mai", "Sempre", "Dopo ogni servizio", "Solo di notte"],
-            "correct_answer": 2
-        }
-    ],
-    "Lingua Straniera - Inglese": [
-        {
-            "question_text": "Come si dice 'aeroporto' in inglese?",
-            "options": ["Station", "Airport", "Port", "Terminal"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "Come si dice 'quanto costa?' in inglese?",
-            "options": ["How much?", "How many?", "How far?", "How long?"],
-            "correct_answer": 0
-        },
-        {
-            "question_text": "Come si dice 'stazione' in inglese?",
-            "options": ["Stop", "Station", "Place", "Location"],
-            "correct_answer": 1
-        },
-        {
-            "question_text": "Come si dice 'centro città' in inglese?",
-            "options": ["City center", "Town hall", "Main street", "Downtown"],
-            "correct_answer": 0
-        },
-        {
-            "question_text": "Come si dice 'biglietto' in inglese?",
-            "options": ["Bill", "Ticket", "Receipt", "Paper"],
-            "correct_answer": 1
-        }
-    ]
+        <div className="text-center mt-6">
+          <button
+            onClick={() => setIsLogin(!isLogin)}
+            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+          >
+            {isLogin ? 'Non hai un account? Registrati' : 'Hai già un account? Accedi'}
+          </button>
+        </div>
+
+        {/* Logo Autoscuola */}
+        <div className="mt-6 text-center">
+          <img
+            src="/logo-autoscuola.png"
+            alt="Autoscuola Desenzanese"
+            className="mx-auto h-16 object-contain"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main Dashboard
+const ChangePasswordModal = ({ onClose }) => {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { changePassword } = useContext(AuthContext);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword !== confirmPassword) {
+      setError('Le due password non coincidono');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('La nuova password deve avere almeno 6 caratteri');
+      return;
+    }
+
+    setLoading(true);
+    const result = await changePassword(currentPassword, newPassword);
+    setLoading(false);
+
+    if (result.success) {
+      setSuccess(true);
+      setTimeout(() => onClose(), 1500);
+    } else {
+      setError(result.message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-gray-900">Cambia Password</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        {success ? (
+          <div className="text-green-600 font-medium py-4 text-center">
+            Password aggiornata con successo!
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password attuale</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nuova password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                minLength={6}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Conferma nuova password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                minLength={6}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {error && <div className="text-red-600 text-sm">{error}</div>}
+
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Salvataggio...' : 'Salva'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Dashboard = () => {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const { user, logout } = useContext(AuthContext);
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
+    try {
+      const response = await axios.get(`${API}/stats`);
+      setStats(response.data);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-xl">Caricamento...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-3">
+              <img
+                src="/logo-autoscuola.png"
+                alt="Autoscuola Desenzanese"
+                className="h-10 object-contain"
+              />
+              <h1 className="text-2xl font-bold text-gray-900">
+                Esame Provinciale Brescia
+              </h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <span className="text-gray-600">
+                Benvenuto, {user?.username} {user?.is_admin && '👑'}
+              </span>
+              <button
+                onClick={() => setShowChangePassword(true)}
+                className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cambia Password
+              </button>
+              <button
+                onClick={logout}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Admin Panel Access */}
+        {user?.is_admin && (
+          <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-6 rounded-xl mb-8">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold mb-2">👑 Pannello Amministratore</h2>
+                <p className="opacity-90">Carica e gestisci le domande dell'esame</p>
+              </div>
+              <button
+                onClick={() => {
+                  window.location.hash = '#admin';
+                  window.location.reload();
+                }}
+                className="bg-white text-purple-600 px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+              >
+                Gestisci Domande 🔧
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Tentativi Totali</h3>
+            <p className="text-3xl font-bold text-blue-600">{stats?.total_attempts || 0}</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Esami Superati</h3>
+            <p className="text-3xl font-bold text-green-600">{stats?.passed_attempts || 0}</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Tasso di Successo</h3>
+            <p className="text-3xl font-bold text-purple-600">
+              {stats?.total_attempts > 0 ? Math.round((stats.passed_attempts / stats.total_attempts) * 100) : 0}%
+            </p>
+          </div>
+        </div>
+
+        {/* Subject Stats */}
+        <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Statistiche per Argomento</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.entries(stats?.by_subject || {}).map(([subject, data]) => (
+              <div key={subject} className="p-4 bg-gray-50 rounded-lg">
+                <h3 className="font-medium text-gray-800 text-sm mb-2">{subject}</h3>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>Tentativi:</span>
+                    <span className="font-medium">{data.attempts}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Precisione:</span>
+                    <span className="font-medium">{Math.round(data.accuracy)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Miglior Score:</span>
+                    <span className="font-medium">{Math.round(data.best_score)}%</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Quiz Modes */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <QuizModeCard
+            title="Prova Libera"
+            description="Tutte le domande di un singolo argomento"
+            icon="📚"
+            type="free"
+          />
+          <QuizModeCard
+            title="Prova per Argomento"
+            description="5 domande casuali da un argomento"
+            icon="🎯"
+            type="by_subject"
+          />
+          <QuizModeCard
+            title="Simulazione Finale"
+            description="5 domande per ogni argomento - 30 minuti"
+            icon="⏰"
+            type="final_simulation"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Quiz Mode Card Component
+const QuizModeCard = ({ title, description, icon, type }) => {
+  const [showSubjects, setShowSubjects] = useState(false);
+  const [showLanguages, setShowLanguages] = useState(false);
+
+  const subjects = [
+    "Geografia regionale",
+    "Normativa statale e regionale",
+    "Normativa comunale TAXI e NCC",
+    "Lingua Straniera - Inglese",
+    "Lingua Straniera - Francese",
+    "Lingua Straniera - Spagnolo",
+    "Lingua Straniera - Tedesco"
+  ];
+
+  const languages = ["Inglese", "Francese", "Spagnolo", "Tedesco"];
+
+  const startQuiz = async (subject = null, language = null) => {
+    try {
+      const quizData = { quiz_type: type };
+      if (subject) quizData.subject = subject;
+      if (language) quizData.language = language;
+
+      const response = await axios.post(`${API}/quiz/start`, quizData);
+      
+      // Store quiz data and redirect to quiz
+      localStorage.setItem('currentQuiz', JSON.stringify({
+        ...response.data,
+        quiz_type: type
+      }));
+      
+      window.location.hash = '#quiz';
+      window.location.reload();
+    } catch (error) {
+      console.error('Error starting quiz:', error);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-6">
+      <div className="text-center mb-4">
+        <div className="text-4xl mb-2">{icon}</div>
+        <h3 className="text-xl font-bold text-gray-800 mb-2">{title}</h3>
+        <p className="text-gray-600 text-sm">{description}</p>
+      </div>
+
+      {type === 'final_simulation' ? (
+        <>
+          <button
+            onClick={() => setShowLanguages(!showLanguages)}
+            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 font-medium"
+          >
+            Inizia Simulazione
+          </button>
+
+          {showLanguages && (
+            <div className="mt-4">
+              <p className="text-sm text-gray-600 mb-2 text-center">Scegli la lingua straniera per l'esame:</p>
+              <div className="space-y-2">
+                {languages.map((language) => (
+                  <button
+                    key={language}
+                    onClick={() => startQuiz(null, language)}
+                    className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-sm"
+                  >
+                    {language}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <button
+            onClick={() => setShowSubjects(!showSubjects)}
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            Scegli Argomento
+          </button>
+
+          {showSubjects && (
+            <div className="mt-4 space-y-2">
+              {subjects.map((subject) => (
+                <button
+                  key={subject}
+                  onClick={() => startQuiz(subject)}
+                  className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-sm"
+                >
+                  {subject}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// Quiz Component
+const Quiz = () => {
+  const [quizData, setQuizData] = useState(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [answers, setAnswers] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [results, setResults] = useState(null);
+
+  useEffect(() => {
+    const storedQuiz = localStorage.getItem('currentQuiz');
+    if (storedQuiz) {
+      const quiz = JSON.parse(storedQuiz);
+      setQuizData(quiz);
+      setAnswers(new Array(quiz.questions.length).fill(-1));
+      
+      if (quiz.time_limit) {
+        setTimeLeft(quiz.time_limit);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (timeLeft && timeLeft > 0) {
+      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (timeLeft === 0 && !submitted) {
+      handleSubmit();
+    }
+  }, [timeLeft]);
+
+  const handleAnswerSelect = (answerIndex) => {
+    const newAnswers = [...answers];
+    newAnswers[currentQuestionIndex] = answerIndex;
+    setAnswers(newAnswers);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const response = await axios.post(`${API}/quiz/${quizData.quiz_id}/submit`, {
+        answers: answers
+      });
+      
+      setResults(response.data);
+      setSubmitted(true);
+    } catch (error) {
+      console.error('Error submitting quiz:', error);
+    }
+  };
+
+  const goToDashboard = () => {
+    localStorage.removeItem('currentQuiz');
+    window.location.hash = '';
+    window.location.reload();
+  };
+
+  if (!quizData) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-xl">Caricamento quiz...</div>
+    </div>;
+  }
+
+  if (submitted && results) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-8">
+          <div className="text-center mb-8">
+            <div className={`text-6xl mb-4 ${results.passed ? 'text-green-500' : 'text-red-500'}`}>
+              {results.passed ? '✅' : '❌'}
+            </div>
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">
+              {results.passed ? 'Esame Superato!' : 'Esame Non Superato'}
+            </h2>
+            <p className="text-gray-600">
+              Hai risposto correttamente a {results.total_correct} su {results.total_questions} domande
+            </p>
+          </div>
+
+          <div className="space-y-4 mb-8">
+            {Object.entries(results.score_by_subject).map(([subject, score]) => (
+              <div key={subject} className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-800">{subject}</span>
+                  <span className="text-lg font-bold">
+                    {score.correct}/{score.total}
+                  </span>
+                </div>
+                <div className="mt-2 bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${
+                      score.correct >= 3 ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${(score.correct / score.total) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={goToDashboard}
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            Torna alla Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentQuestion = quizData.questions[currentQuestionIndex];
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-2xl font-bold text-gray-800">
+              {quizData.quiz_type === 'final_simulation' ? 'Simulazione Finale' : 
+               quizData.quiz_type === 'free' ? 'Prova Libera' : 'Prova per Argomento'}
+            </h1>
+            {timeLeft && (
+              <div className="text-xl font-bold text-red-600">
+                ⏰ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+              </div>
+            )}
+          </div>
+          
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">
+              Domanda {currentQuestionIndex + 1} di {quizData.questions.length}
+            </span>
+            <span className="text-gray-600">
+              {currentQuestion.subject}
+            </span>
+          </div>
+          
+          <div className="mt-4 bg-gray-200 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all"
+              style={{ width: `${((currentQuestionIndex + 1) / quizData.questions.length) * 100}%` }}
+            ></div>
+          </div>
+        </div>
+
+        {/* Question */}
+        <div className="bg-white rounded-xl shadow-sm border p-8 mb-6">
+          <h2 className="text-xl font-medium text-gray-800 mb-6">
+            {currentQuestion.question_text}
+          </h2>
+          
+          <div className="space-y-3">
+            {currentQuestion.options.map((option, index) => {
+              const isFreeMode = quizData.quiz_type === 'free';
+              const hasAnswered = isFreeMode && answers[currentQuestionIndex] !== -1;
+              const isSelected = answers[currentQuestionIndex] === index;
+              const isCorrectOption = index === currentQuestion.correct_answer;
+
+              let optionStyle = 'bg-gray-50 border-gray-200 hover:bg-gray-100';
+              if (isFreeMode && hasAnswered) {
+                if (isCorrectOption) {
+                  optionStyle = 'bg-green-100 border-green-500 text-green-800';
+                } else if (isSelected) {
+                  optionStyle = 'bg-red-100 border-red-500 text-red-800';
+                } else {
+                  optionStyle = 'bg-gray-50 border-gray-200 opacity-60';
+                }
+              } else if (isSelected) {
+                optionStyle = 'bg-blue-100 border-blue-500 text-blue-800';
+              }
+
+              return (
+                <button
+                  key={index}
+                  onClick={() => !hasAnswered && handleAnswerSelect(index)}
+                  disabled={hasAnswered}
+                  className={`w-full p-4 text-left rounded-lg border transition-colors ${optionStyle} ${hasAnswered ? 'cursor-default' : ''}`}
+                >
+                  <span className="font-medium">{String.fromCharCode(65 + index)})</span> {option}
+                  {isFreeMode && hasAnswered && isCorrectOption && ' ✓'}
+                  {isFreeMode && hasAnswered && isSelected && !isCorrectOption && ' ✗'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex justify-between items-center">
+          <button
+            onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
+            disabled={currentQuestionIndex === 0}
+            className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            ← Precedente
+          </button>
+
+          <div className="flex gap-3">
+            {quizData.quiz_type === 'free' && (
+              <button
+                onClick={handleSubmit}
+                className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors font-medium"
+              >
+                Interrompi e Vedi Risultato
+              </button>
+            )}
+
+            {currentQuestionIndex === quizData.questions.length - 1 ? (
+              quizData.quiz_type !== 'free' && (
+                <button
+                  onClick={handleSubmit}
+                  className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  Termina Quiz
+                </button>
+              )
+            ) : (
+              <button
+                onClick={() => setCurrentQuestionIndex(Math.min(quizData.questions.length - 1, currentQuestionIndex + 1))}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Successiva →
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main App Component
+function App() {
+  const [currentView, setCurrentView] = useState('dashboard');
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash === '#quiz') {
+      setCurrentView('quiz');
+    } else if (hash === '#admin') {
+      setCurrentView('admin');
+    }
+  }, []);
+
+  return (
+    <AuthProvider>
+      <AuthContext.Consumer>
+        {({ token, user }) => {
+          if (!token) {
+            return <LoginPage />;
+          }
+
+          if (currentView === 'quiz') {
+            return <Quiz />;
+          }
+
+          if (currentView === 'admin' && user?.is_admin) {
+            return <AdminPanel />;
+          }
+
+          return <Dashboard />;
+        }}
+      </AuthContext.Consumer>
+    </AuthProvider>
+  );
 }
 
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    user = await db.users.find_one({"id": credentials.credentials})
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid authentication")
-    return User(**user)
-
-async def get_admin_user(current_user: User = Depends(get_current_user)):
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
-
-# Initialize database with sample questions
-async def init_db():
-    # Check if questions already exist
-    existing_questions = await db.questions.count_documents({})
-    if existing_questions == 0:
-        questions_to_insert = []
-        for subject, questions in SAMPLE_QUESTIONS.items():
-            for q in questions:
-                question = Question(
-                    subject=subject,
-                    question_text=q["question_text"],
-                    options=q["options"],
-                    correct_answer=q["correct_answer"]
-                )
-                questions_to_insert.append(question.dict())
-        
-        if questions_to_insert:
-            await db.questions.insert_many(questions_to_insert)
-            print(f"Inserted {len(questions_to_insert)} sample questions")
-    
-    # Create admin user if it doesn't exist
-    admin_user = await db.users.find_one({"username": "admin"})
-    if not admin_user:
-        admin = User(
-            username="admin",
-            password_hash=hash_password("admin123"),
-            is_admin=True
-        )
-        await db.users.insert_one(admin.dict())
-        print("Created admin user: admin/admin123")
-
-def validate_question_format(question_data: Dict[str, Any]) -> bool:
-    """Validate that a question has the correct format"""
-    required_fields = ["question_text", "options", "correct_answer"]
-    
-    for field in required_fields:
-        if field not in question_data:
-            return False
-    
-    # Check options is a list of at least 2 strings
-    if not isinstance(question_data["options"], list) or len(question_data["options"]) < 2:
-        return False
-    
-    # Check correct_answer is a valid index for the given options
-    num_options = len(question_data["options"])
-    if not isinstance(question_data["correct_answer"], int) or not (0 <= question_data["correct_answer"] < num_options):
-        return False
-    
-    return True
-
-# Auth endpoints
-@api_router.post("/auth/register")
-async def register_user(user_data: UserCreate):
-    # Check if user exists
-    existing_user = await db.users.find_one({"username": user_data.username})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Create new user
-    user = User(
-        username=user_data.username,
-        password_hash=hash_password(user_data.password)
-    )
-    
-    await db.users.insert_one(user.dict())
-    
-    return {
-        "message": "User registered successfully",
-        "user_id": user.id,
-        "token": user.id  # Simple token system
-    }
-
-@api_router.post("/auth/login")
-async def login_user(login_data: UserLogin):
-    user = await db.users.find_one({"username": login_data.username})
-    if not user or user["password_hash"] != hash_password(login_data.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    return {
-        "message": "Login successful",
-        "user_id": user["id"],
-        "token": user["id"],  # Simple token system
-        "username": user["username"],
-        "is_admin": user.get("is_admin", False)
-    }
-
-@api_router.post("/auth/change-password")
-async def change_password(data: ChangePassword):
-    user = await db.users.find_one({"username": data.username})
-    if not user or user["password_hash"] != hash_password(data.current_password):
-        raise HTTPException(status_code=401, detail="Password attuale non corretta")
-
-    if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="La nuova password deve avere almeno 6 caratteri")
-
-    await db.users.update_one(
-        {"username": data.username},
-        {"$set": {"password_hash": hash_password(data.new_password)}}
-    )
-
-    return {"message": "Password aggiornata con successo"}
-
-# Admin endpoints for question management
-@api_router.get("/admin/questions-count")
-async def get_questions_count(admin_user: User = Depends(get_admin_user)):
-    """Get count of questions by subject"""
-    subjects = ALL_SUBJECTS
-    
-    counts = {}
-    for subject in subjects:
-        count = await db.questions.count_documents({"subject": subject})
-        counts[subject] = count
-    
-    return counts
-
-@api_router.post("/admin/upload-questions")
-async def upload_questions(
-    subject: str = Form(...),
-    questions_file: UploadFile = File(...),
-    admin_user: User = Depends(get_admin_user)
-):
-    """Upload questions for a specific subject"""
-    
-    # Validate subject
-    valid_subjects = ALL_SUBJECTS
-    
-    if subject not in valid_subjects:
-        raise HTTPException(status_code=400, detail=f"Invalid subject. Must be one of: {valid_subjects}")
-    
-    # Read and validate JSON file
-    try:
-        content = await questions_file.read()
-        questions_data = json.loads(content.decode('utf-8'))
-        
-        if not isinstance(questions_data, list):
-            raise HTTPException(status_code=400, detail="JSON file must contain an array of questions")
-        
-        # Validate each question
-        for i, question in enumerate(questions_data):
-            if not validate_question_format(question):
-                raise HTTPException(status_code=400, 
-                                  detail=f"Question {i+1} has invalid format. Required fields: question_text, options (4 items), correct_answer (0-3)")
-        
-        # Remove existing questions for this subject
-        await db.questions.delete_many({"subject": subject})
-        
-        # Insert new questions
-        questions_to_insert = []
-        for q in questions_data:
-            question = Question(
-                subject=subject,
-                question_text=q["question_text"],
-                options=q["options"],
-                correct_answer=q["correct_answer"]
-            )
-            questions_to_insert.append(question.dict())
-        
-        if questions_to_insert:
-            result = await db.questions.insert_many(questions_to_insert)
-            
-            return {
-                "message": f"Successfully uploaded {len(questions_to_insert)} questions for {subject}",
-                "subject": subject,
-                "questions_count": len(questions_to_insert),
-                "inserted_ids": len(result.inserted_ids)
-            }
-        else:
-            raise HTTPException(status_code=400, detail="No valid questions found in file")
-            
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON file format")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
-
-@api_router.post("/admin/reset-sample-questions")
-async def reset_sample_questions(admin_user: User = Depends(get_admin_user)):
-    """Reset to original sample questions"""
-    
-    # Delete all existing questions
-    await db.questions.delete_many({})
-    
-    # Insert sample questions
-    questions_to_insert = []
-    for subject, questions in SAMPLE_QUESTIONS.items():
-        for q in questions:
-            question = Question(
-                subject=subject,
-                question_text=q["question_text"],
-                options=q["options"],
-                correct_answer=q["correct_answer"]
-            )
-            questions_to_insert.append(question.dict())
-    
-    if questions_to_insert:
-        await db.questions.insert_many(questions_to_insert)
-        
-        return {
-            "message": f"Reset to {len(questions_to_insert)} sample questions",
-            "questions_by_subject": {
-                subject: len(questions) for subject, questions in SAMPLE_QUESTIONS.items()
-            }
-        }
-
-@api_router.get("/admin/preview-questions/{subject}")
-async def preview_questions(subject: str, admin_user: User = Depends(get_admin_user)):
-    """Get preview of questions for a subject"""
-    
-    questions = await db.questions.find({"subject": subject}).limit(5).to_list(5)
-    
-    # Remove IDs for preview
-    preview_questions = []
-    for q in questions:
-        preview_questions.append({
-            "question_text": q["question_text"],
-            "options": q["options"],
-            "correct_answer": q["correct_answer"]
-        })
-    
-    return {
-        "subject": subject,
-        "total_questions": await db.questions.count_documents({"subject": subject}),
-        "preview": preview_questions
-    }
-
-# Quiz endpoints
-@api_router.post("/quiz/start")
-async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_current_user)):
-    questions_query = {}
-    num_questions = 5  # Default for subject and final simulation
-    
-    if quiz_data.quiz_type == "free" and quiz_data.subject:
-        questions_query = {"subject": quiz_data.subject}
-        num_questions = 1000  # Get all questions for free mode
-    elif quiz_data.quiz_type == "by_subject" and quiz_data.subject:
-        questions_query = {"subject": quiz_data.subject}
-    elif quiz_data.quiz_type == "final_simulation":
-        # For final simulation, we need 5 questions from each fixed subject,
-        # plus 5 from the language chosen by the user
-        if quiz_data.language not in LANGUAGE_OPTIONS:
-            raise HTTPException(status_code=400, detail=f"Devi scegliere una lingua tra: {LANGUAGE_OPTIONS}")
-
-        chosen_language_subject = f"Lingua Straniera - {quiz_data.language}"
-        all_subjects = FIXED_SUBJECTS + [chosen_language_subject]
-        selected_questions = []
-        
-        for subject in all_subjects:
-            subject_questions = await db.questions.find({"subject": subject}).to_list(1000)
-            if len(subject_questions) >= 5:
-                selected_questions.extend(random.sample(subject_questions, 5))
-            else:
-                selected_questions.extend(subject_questions)
-        
-        # Create quiz attempt
-        quiz_attempt = QuizAttempt(
-            user_id=current_user.id,
-            quiz_type=quiz_data.quiz_type,
-            questions=[q["id"] for q in selected_questions],
-            answers=[-1] * len(selected_questions),
-            correct_answers=[q["correct_answer"] for q in selected_questions],
-            score_by_subject={},
-            total_correct=0,
-            total_questions=len(selected_questions),
-            passed=False
-        )
-        
-        await db.quiz_attempts.insert_one(quiz_attempt.dict())
-        
-        # Return questions without correct answers
-        questions_for_frontend = []
-        for q in selected_questions:
-            questions_for_frontend.append({
-                "id": q["id"],
-                "subject": q["subject"],
-                "question_text": q["question_text"],
-                "options": q["options"]
-            })
-        
-        return {
-            "quiz_id": quiz_attempt.id,
-            "questions": questions_for_frontend,
-            "quiz_type": quiz_data.quiz_type,
-            "time_limit": 1800  # 30 minutes in seconds
-        }
-    
-    # For free and by_subject modes
-    questions = await db.questions.find(questions_query).to_list(num_questions)
-    
-    if quiz_data.quiz_type == "by_subject":
-        questions = random.sample(questions, min(5, len(questions)))
-    elif quiz_data.quiz_type == "free":
-        random.shuffle(questions)  # New random order every time
-    
-    if not questions:
-        raise HTTPException(status_code=404, detail="No questions found")
-    
-    # Create quiz attempt
-    quiz_attempt = QuizAttempt(
-        user_id=current_user.id,
-        quiz_type=quiz_data.quiz_type,
-        subject=quiz_data.subject,
-        questions=[q["id"] for q in questions],
-        answers=[-1] * len(questions),
-        correct_answers=[q["correct_answer"] for q in questions],
-        score_by_subject={},
-        total_correct=0,
-        total_questions=len(questions),
-        passed=False
-    )
-    
-    await db.quiz_attempts.insert_one(quiz_attempt.dict())
-    
-    # Return questions. In "free" mode we include the correct answer so the
-    # frontend can give immediate feedback; other modes stay exam-like (hidden).
-    questions_for_frontend = []
-    for q in questions:
-        q_data = {
-            "id": q["id"],
-            "subject": q["subject"],
-            "question_text": q["question_text"],
-            "options": q["options"]
-        }
-        if quiz_data.quiz_type == "free":
-            q_data["correct_answer"] = q["correct_answer"]
-        questions_for_frontend.append(q_data)
-    
-    return {
-        "quiz_id": quiz_attempt.id,
-        "questions": questions_for_frontend,
-        "quiz_type": quiz_data.quiz_type,
-        "subject": quiz_data.subject,
-        "time_limit": 1800 if quiz_data.quiz_type == "final_simulation" else None
-    }
-
-@api_router.post("/quiz/{quiz_id}/submit")
-async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User = Depends(get_current_user)):
-    quiz_attempt = await db.quiz_attempts.find_one({"id": quiz_id, "user_id": current_user.id})
-    if not quiz_attempt:
-        raise HTTPException(status_code=404, detail="Quiz not found")
-    
-    # Calculate score
-    correct_count = 0
-    score_by_subject = {}
-    
-    # Get questions details
-    questions = []
-    for q_id in quiz_attempt["questions"]:
-        question = await db.questions.find_one({"id": q_id})
-        questions.append(question)
-    
-    # Calculate scores by subject
-    for i, (question, user_answer) in enumerate(zip(questions, submit_data.answers)):
-        subject = question["subject"]
-        is_correct = user_answer == question["correct_answer"]
-        
-        if subject not in score_by_subject:
-            score_by_subject[subject] = {"correct": 0, "total": 0}
-        
-        score_by_subject[subject]["total"] += 1
-        if is_correct:
-            score_by_subject[subject]["correct"] += 1
-            correct_count += 1
-    
-    # Check if passed (for final simulation)
-    passed = False
-    if quiz_attempt["quiz_type"] == "final_simulation":
-        # Must have at least 3 correct per subject and max 8 total errors
-        total_errors = len(submit_data.answers) - correct_count
-        subject_requirements_met = all(
-            score["correct"] >= 3 for score in score_by_subject.values()
-        )
-        passed = subject_requirements_met and total_errors <= 8
-    else:
-        # For other quiz types, consider passed if > 60% correct
-        passed = correct_count / len(submit_data.answers) > 0.6
-    
-    # Update quiz attempt
-    await db.quiz_attempts.update_one(
-        {"id": quiz_id},
-        {
-            "$set": {
-                "answers": submit_data.answers,
-                "score_by_subject": score_by_subject,
-                "total_correct": correct_count,
-                "passed": passed,
-                "completed_at": datetime.utcnow(),
-                "time_taken": (datetime.utcnow() - quiz_attempt["started_at"]).total_seconds()
-            }
-        }
-    )
-    
-    # Update user stats
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$inc": {"total_attempts": 1}}
-    )
-    
-    return {
-        "quiz_id": quiz_id,
-        "total_correct": correct_count,
-        "total_questions": len(submit_data.answers),
-        "score_by_subject": score_by_subject,
-        "passed": passed,
-        "correct_answers": quiz_attempt["correct_answers"]
-    }
-
-@api_router.get("/stats")
-async def get_user_stats(current_user: User = Depends(get_current_user)):
-    attempts = await db.quiz_attempts.find({"user_id": current_user.id}).to_list(1000)
-    
-    # Clean recent attempts for JSON serialization
-    recent_attempts = sorted(attempts, key=lambda x: x["started_at"], reverse=True)[:10]
-    cleaned_recent = []
-    for attempt in recent_attempts:
-        cleaned_attempt = {
-            "id": attempt["id"],
-            "quiz_type": attempt["quiz_type"],
-            "subject": attempt.get("subject"),
-            "total_correct": attempt["total_correct"],
-            "total_questions": attempt["total_questions"],
-            "passed": attempt["passed"],
-            "started_at": attempt["started_at"].isoformat() if attempt["started_at"] else None,
-            "completed_at": attempt["completed_at"].isoformat() if attempt.get("completed_at") else None
-        }
-        cleaned_recent.append(cleaned_attempt)
-    
-    stats = {
-        "total_attempts": len(attempts),
-        "passed_attempts": len([a for a in attempts if a.get("passed", False)]),
-        "by_subject": {},
-        "recent_attempts": cleaned_recent
-    }
-    
-    # Calculate subject stats
-    subjects = ALL_SUBJECTS
-    
-    for subject in subjects:
-        subject_attempts = [a for a in attempts if a.get("subject") == subject or 
-                          (a.get("score_by_subject") and subject in a["score_by_subject"])]
-        
-        if subject_attempts:
-            correct_total = sum(a.get("score_by_subject", {}).get(subject, {}).get("correct", 0) for a in subject_attempts)
-            questions_total = sum(a.get("score_by_subject", {}).get(subject, {}).get("total", 0) for a in subject_attempts)
-            
-            stats["by_subject"][subject] = {
-                "attempts": len(subject_attempts),
-                "accuracy": (correct_total / questions_total * 100) if questions_total > 0 else 0,
-                "best_score": max((a.get("score_by_subject", {}).get(subject, {}).get("correct", 0) / 
-                                 max(a.get("score_by_subject", {}).get(subject, {}).get("total", 1), 1) * 100) 
-                                for a in subject_attempts)
-            }
-    
-    return stats
-
-# Include the router in the main app
-app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+export default App;
