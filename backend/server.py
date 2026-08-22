@@ -512,6 +512,8 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
     
     if quiz_data.quiz_type == "by_subject":
         questions = random.sample(questions, min(5, len(questions)))
+    elif quiz_data.quiz_type == "free":
+        random.shuffle(questions)  # New random order every time
     
     if not questions:
         raise HTTPException(status_code=404, detail="No questions found")
@@ -532,15 +534,19 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
     
     await db.quiz_attempts.insert_one(quiz_attempt.dict())
     
-    # Return questions without correct answers
+    # Return questions. In "free" mode we include the correct answer so the
+    # frontend can give immediate feedback; other modes stay exam-like (hidden).
     questions_for_frontend = []
     for q in questions:
-        questions_for_frontend.append({
+        q_data = {
             "id": q["id"],
             "subject": q["subject"],
             "question_text": q["question_text"],
             "options": q["options"]
-        })
+        }
+        if quiz_data.quiz_type == "free":
+            q_data["correct_answer"] = q["correct_answer"]
+        questions_for_frontend.append(q_data)
     
     return {
         "quiz_id": quiz_attempt.id,
