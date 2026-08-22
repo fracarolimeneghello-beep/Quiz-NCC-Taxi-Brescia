@@ -218,9 +218,20 @@ const AdminPanel = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">
-          🔧 Pannello di Amministrazione
-        </h1>
+        <div className="flex justify-between items-start mb-2">
+          <h1 className="text-3xl font-bold text-gray-800">
+            🔧 Pannello di Amministrazione
+          </h1>
+          <button
+            onClick={() => {
+              window.location.hash = '';
+              window.location.reload();
+            }}
+            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium whitespace-nowrap"
+          >
+            ← Torna alla Dashboard
+          </button>
+        </div>
         <p className="text-gray-600 mb-6">
           Carica i file JSON con le domande reali dell'esame per ogni argomento
         </p>
