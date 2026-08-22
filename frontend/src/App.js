@@ -9,7 +9,10 @@ const API = `${BACKEND_URL}/api`;
 const AuthContext = createContext();
 
 const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
   const [token, setToken] = useState(localStorage.getItem('token'));
 
   useEffect(() => {
@@ -22,9 +25,11 @@ const AuthProvider = ({ children }) => {
     try {
       const response = await axios.post(`${API}/auth/login`, { username, password });
       const { token: newToken, username: userName, is_admin } = response.data;
+      const userData = { username: userName, is_admin: is_admin || false };
       setToken(newToken);
-      setUser({ username: userName, is_admin: is_admin || false });
+      setUser(userData);
       localStorage.setItem('token', newToken);
+      localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
       return true;
     } catch (error) {
@@ -37,9 +42,11 @@ const AuthProvider = ({ children }) => {
     try {
       const response = await axios.post(`${API}/auth/register`, { username, password });
       const { token: newToken } = response.data;
+      const userData = { username, is_admin: false };
       setToken(newToken);
-      setUser({ username, is_admin: false });
+      setUser(userData);
       localStorage.setItem('token', newToken);
+      localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
       return true;
     } catch (error) {
@@ -52,6 +59,7 @@ const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     delete axios.defaults.headers.common['Authorization'];
   };
 
