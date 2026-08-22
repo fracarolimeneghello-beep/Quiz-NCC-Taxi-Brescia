@@ -94,9 +94,12 @@ const AdminPanel = () => {
 
   const subjects = [
     "Geografia regionale",
-    "Normativa statale e regionale", 
+    "Normativa statale e regionale",
     "Normativa comunale TAXI e NCC",
-    "Lingua Straniera"
+    "Lingua Straniera - Inglese",
+    "Lingua Straniera - Francese",
+    "Lingua Straniera - Spagnolo",
+    "Lingua Straniera - Tedesco"
   ];
 
   useEffect(() => {
@@ -697,18 +700,25 @@ const Dashboard = () => {
 // Quiz Mode Card Component
 const QuizModeCard = ({ title, description, icon, type }) => {
   const [showSubjects, setShowSubjects] = useState(false);
+  const [showLanguages, setShowLanguages] = useState(false);
 
   const subjects = [
     "Geografia regionale",
     "Normativa statale e regionale",
     "Normativa comunale TAXI e NCC",
-    "Lingua Straniera"
+    "Lingua Straniera - Inglese",
+    "Lingua Straniera - Francese",
+    "Lingua Straniera - Spagnolo",
+    "Lingua Straniera - Tedesco"
   ];
 
-  const startQuiz = async (subject = null) => {
+  const languages = ["Inglese", "Francese", "Spagnolo", "Tedesco"];
+
+  const startQuiz = async (subject = null, language = null) => {
     try {
       const quizData = { quiz_type: type };
       if (subject) quizData.subject = subject;
+      if (language) quizData.language = language;
 
       const response = await axios.post(`${API}/quiz/start`, quizData);
       
@@ -734,12 +744,31 @@ const QuizModeCard = ({ title, description, icon, type }) => {
       </div>
 
       {type === 'final_simulation' ? (
-        <button
-          onClick={() => startQuiz()}
-          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 font-medium"
-        >
-          Inizia Simulazione
-        </button>
+        <>
+          <button
+            onClick={() => setShowLanguages(!showLanguages)}
+            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 font-medium"
+          >
+            Inizia Simulazione
+          </button>
+
+          {showLanguages && (
+            <div className="mt-4">
+              <p className="text-sm text-gray-600 mb-2 text-center">Scegli la lingua straniera per l'esame:</p>
+              <div className="space-y-2">
+                {languages.map((language) => (
+                  <button
+                    key={language}
+                    onClick={() => startQuiz(null, language)}
+                    className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-sm"
+                  >
+                    {language}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <>
           <button
