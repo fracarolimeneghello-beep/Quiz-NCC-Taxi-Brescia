@@ -916,6 +916,50 @@ const Quiz = () => {
             ))}
           </div>
 
+          {(quizData.quiz_type === 'by_subject' || quizData.quiz_type === 'final_simulation') && (
+            <div className="mb-8">
+              <h3 className="text-xl font-bold text-gray-800 mb-4">Correzione</h3>
+              <div className="space-y-4">
+                {quizData.questions.map((question, index) => {
+                  const userAnswer = answers[index];
+                  const correctAnswer = results.correct_answers[index];
+                  const isCorrect = userAnswer === correctAnswer;
+
+                  return (
+                    <div key={question.id} className="p-4 bg-gray-50 rounded-lg border">
+                      <div className="flex items-start gap-2 mb-3">
+                        <span className={`text-xl ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                          {isCorrect ? '✓' : '✗'}
+                        </span>
+                        <p className="font-medium text-gray-800">{question.question_text}</p>
+                      </div>
+                      <div className="space-y-2 ml-7">
+                        {question.options.map((option, optIndex) => {
+                          let style = 'text-gray-600';
+                          if (optIndex === correctAnswer) {
+                            style = 'text-green-700 font-medium';
+                          } else if (optIndex === userAnswer && !isCorrect) {
+                            style = 'text-red-700 font-medium';
+                          }
+                          return (
+                            <div key={optIndex} className={`text-sm ${style}`}>
+                              {String.fromCharCode(65 + optIndex)}) {option}
+                              {optIndex === correctAnswer && ' ✓ (risposta corretta)'}
+                              {optIndex === userAnswer && !isCorrect && ' ✗ (la tua risposta)'}
+                            </div>
+                          );
+                        })}
+                        {userAnswer === -1 && (
+                          <div className="text-sm text-gray-500 italic">Nessuna risposta data</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <button
             onClick={goToDashboard}
             className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
