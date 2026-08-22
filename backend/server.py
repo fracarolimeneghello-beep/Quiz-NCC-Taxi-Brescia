@@ -78,6 +78,7 @@ class QuizAttempt(BaseModel):
 class QuizStart(BaseModel):
     quiz_type: str
     subject: Optional[str] = None
+    language: Optional[str] = None
 
 class QuizAnswer(BaseModel):
     question_index: int
@@ -91,6 +92,12 @@ class QuestionUpload(BaseModel):
     questions: List[Dict[str, Any]]
 
 # Sample questions data
+# Fixed subjects (always part of the exam) and the 4 selectable foreign languages
+FIXED_SUBJECTS = ["Geografia regionale", "Normativa statale e regionale", "Normativa comunale TAXI e NCC"]
+LANGUAGE_OPTIONS = ["Inglese", "Francese", "Spagnolo", "Tedesco"]
+LANGUAGE_SUBJECTS = [f"Lingua Straniera - {lang}" for lang in LANGUAGE_OPTIONS]
+ALL_SUBJECTS = FIXED_SUBJECTS + LANGUAGE_SUBJECTS
+
 SAMPLE_QUESTIONS = {
     "Geografia regionale": [
         {
@@ -173,7 +180,7 @@ SAMPLE_QUESTIONS = {
             "correct_answer": 2
         }
     ],
-    "Lingua Straniera": [
+    "Lingua Straniera - Inglese": [
         {
             "question_text": "Come si dice 'aeroporto' in inglese?",
             "options": ["Station", "Airport", "Port", "Terminal"],
@@ -255,12 +262,13 @@ def validate_question_format(question_data: Dict[str, Any]) -> bool:
         if field not in question_data:
             return False
     
-    # Check options is a list of exactly 4 strings
-    if not isinstance(question_data["options"], list) or len(question_data["options"]) != 4:
+    # Check options is a list of at least 2 strings
+    if not isinstance(question_data["options"], list) or len(question_data["options"]) < 2:
         return False
     
-    # Check correct_answer is valid index (0-3)
-    if not isinstance(question_data["correct_answer"], int) or question_data["correct_answer"] not in [0, 1, 2, 3]:
+    # Check correct_answer is a valid index for the given options
+    num_options = len(question_data["options"])
+    if not isinstance(question_data["correct_answer"], int) or not (0 <= question_data["correct_answer"] < num_options):
         return False
     
     return True
@@ -321,8 +329,7 @@ async def change_password(data: ChangePassword):
 @api_router.get("/admin/questions-count")
 async def get_questions_count(admin_user: User = Depends(get_admin_user)):
     """Get count of questions by subject"""
-    subjects = ["Geografia regionale", "Normativa statale e regionale", 
-               "Normativa comunale TAXI e NCC", "Lingua Straniera"]
+    subjects = ALL_SUBJECTS
     
     counts = {}
     for subject in subjects:
@@ -340,8 +347,7 @@ async def upload_questions(
     """Upload questions for a specific subject"""
     
     # Validate subject
-    valid_subjects = ["Geografia regionale", "Normativa statale e regionale", 
-                     "Normativa comunale TAXI e NCC", "Lingua Straniera"]
+    valid_subjects = ALL_SUBJECTS
     
     if subject not in valid_subjects:
         raise HTTPException(status_code=400, detail=f"Invalid subject. Must be one of: {valid_subjects}")
@@ -453,9 +459,13 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
     elif quiz_data.quiz_type == "by_subject" and quiz_data.subject:
         questions_query = {"subject": quiz_data.subject}
     elif quiz_data.quiz_type == "final_simulation":
-        # For final simulation, we need 5 questions from each subject
-        all_subjects = ["Geografia regionale", "Normativa statale e regionale", 
-                       "Normativa comunale TAXI e NCC", "Lingua Straniera"]
+        # For final simulation, we need 5 questions from each fixed subject,
+        # plus 5 from the language chosen by the user
+        if quiz_data.language not in LANGUAGE_OPTIONS:
+            raise HTTPException(status_code=400, detail=f"Devi scegliere una lingua tra: {LANGUAGE_OPTIONS}")
+
+        chosen_language_subject = f"Lingua Straniera - {quiz_data.language}"
+        all_subjects = FIXED_SUBJECTS + [chosen_language_subject]
         selected_questions = []
         
         for subject in all_subjects:
@@ -640,8 +650,7 @@ async def get_user_stats(current_user: User = Depends(get_current_user)):
     }
     
     # Calculate subject stats
-    subjects = ["Geografia regionale", "Normativa statale e regionale", 
-                "Normativa comunale TAXI e NCC", "Lingua Straniera"]
+    subjects = ALL_SUBJECTS
     
     for subject in subjects:
         subject_attempts = [a for a in attempts if a.get("subject") == subject or 
