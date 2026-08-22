@@ -13,7 +13,16 @@ const AuthProvider = ({ children }) => {
     const storedUser = localStorage.getItem('user');
     return storedUser ? JSON.parse(storedUser) : null;
   });
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(() => {
+    const storedToken = localStorage.getItem('token');
+    // Set the Authorization header immediately (synchronously), before any
+    // child component's effects run, to avoid a race condition where a
+    // request (like fetching stats) fires before the header is attached.
+    if (storedToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+    }
+    return storedToken;
+  });
 
   useEffect(() => {
     if (token) {
