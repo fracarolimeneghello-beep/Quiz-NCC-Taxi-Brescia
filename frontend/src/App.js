@@ -226,9 +226,9 @@ const AdminPanel = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
+      <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6 mb-8">
         <div className="flex justify-between items-start mb-2">
-          <h1 className="text-3xl font-bold text-gray-800">
+          <h1 className="font-display text-2xl font-semibold text-navy-900">
             🔧 Pannello di Amministrazione
           </h1>
           <button
@@ -236,19 +236,19 @@ const AdminPanel = () => {
               window.location.hash = '';
               window.location.reload();
             }}
-            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium whitespace-nowrap"
+            className="bg-paper text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-colors text-sm font-medium whitespace-nowrap"
           >
             ← Torna alla Dashboard
           </button>
         </div>
-        <p className="text-gray-600 mb-6">
+        <p className="text-navy-400 mb-6">
           Carica i file JSON con le domande reali dell'esame per ogni argomento
         </p>
 
         {/* File Upload Instructions */}
-        <div className="bg-blue-50 p-4 rounded-lg mb-6">
-          <h3 className="font-semibold text-blue-800 mb-2">📋 Formato File JSON Richiesto:</h3>
-          <pre className="text-sm text-blue-700 bg-blue-100 p-3 rounded overflow-x-auto">
+        <div className="bg-navy-50 p-4 rounded-lg mb-6">
+          <h3 className="font-semibold text-navy-900 mb-2">📋 Formato File JSON Richiesto:</h3>
+          <pre className="text-sm text-navy-700 bg-white p-3 rounded overflow-x-auto border border-navy-100">
 {`[
   {
     "question_text": "Testo della domanda?",
@@ -257,7 +257,7 @@ const AdminPanel = () => {
   }
 ]`}
           </pre>
-          <p className="text-sm text-blue-600 mt-2">
+          <p className="text-sm text-navy-600 mt-2">
             • <code>correct_answer</code> è l'indice della risposta corretta (0-3)<br/>
             • Ogni file può contenere qualsiasi numero di domande<br/>
             • Le domande esistenti per l'argomento saranno sostituite
@@ -267,15 +267,15 @@ const AdminPanel = () => {
         {/* Current Questions Status */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {subjects.map((subject) => (
-            <div key={subject} className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="font-medium text-gray-800 text-sm mb-2">{subject}</h4>
-              <div className="text-2xl font-bold text-blue-600 mb-2">
+            <div key={subject} className="bg-paper p-4 rounded-lg border border-navy-50">
+              <h4 className="font-medium text-navy-900 text-sm mb-2">{subject}</h4>
+              <div className="font-mono text-2xl font-semibold text-navy-900 mb-2">
                 {questionCounts[subject] || 0} domande
               </div>
               <button
                 onClick={() => previewQuestions(subject)}
                 disabled={!questionCounts[subject]}
-                className="text-sm text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+                className="text-sm text-navy-600 hover:text-navy-900 disabled:text-navy-100"
               >
                 👁 Anteprima
               </button>
@@ -286,8 +286,8 @@ const AdminPanel = () => {
         {/* Upload Section */}
         <div className="space-y-6">
           {subjects.map((subject) => (
-            <div key={subject} className="border border-gray-200 rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            <div key={subject} className="border border-navy-50 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-navy-900 mb-4">
                 📚 {subject}
               </h3>
 
@@ -297,10 +297,10 @@ const AdminPanel = () => {
                     type="file"
                     accept=".json"
                     onChange={(e) => handleFileSelect(subject, e.target.files[0])}
-                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    className="block w-full text-sm text-navy-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-navy-50 file:text-navy-900 hover:file:bg-navy-100"
                   />
                   {selectedFiles[subject] && (
-                    <p className="text-sm text-gray-600 mt-2">
+                    <p className="text-sm text-navy-400 mt-2">
                       File selezionato: {selectedFiles[subject].name}
                     </p>
                   )}
@@ -309,7 +309,7 @@ const AdminPanel = () => {
                 <button
                   onClick={() => uploadQuestions(subject)}
                   disabled={loading || !selectedFiles[subject]}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="bg-navy-900 text-white px-6 py-2 rounded-lg hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Caricamento...' : 'Carica'}
                 </button>
@@ -318,9 +318,9 @@ const AdminPanel = () => {
               {/* Upload Status */}
               {uploadStatus[subject] && (
                 <div className={`mt-4 p-3 rounded-lg ${
-                  uploadStatus[subject].status === 'success' ? 'bg-green-100 text-green-800' :
-                  uploadStatus[subject].status === 'error' ? 'bg-red-100 text-red-800' :
-                  'bg-blue-100 text-blue-800'
+                  uploadStatus[subject].status === 'success' ? 'bg-leaf-50 text-leaf-600' :
+                  uploadStatus[subject].status === 'error' ? 'bg-brick-50 text-brick-600' :
+                  'bg-navy-50 text-navy-900'
                 }`}>
                   {uploadStatus[subject].message}
                 </div>
@@ -330,18 +330,18 @@ const AdminPanel = () => {
         </div>
 
         {/* Reset to Sample Questions */}
-        <div className="mt-8 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+        <div className="mt-8 p-6 bg-brick-50 border border-brick-500/20 rounded-lg">
+          <h3 className="text-lg font-semibold text-brick-600 mb-2">
             🔄 Ripristina Domande di Esempio
           </h3>
-          <p className="text-yellow-700 mb-4">
+          <p className="text-brick-600 mb-4 opacity-90">
             Questo ripristinerà le domande di esempio originali per tutti gli argomenti. 
             Tutte le domande caricate saranno eliminate.
           </p>
           <button
             onClick={resetToSampleQuestions}
             disabled={loading}
-            className="bg-yellow-600 text-white px-6 py-2 rounded-lg hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+            className="bg-brick-500 text-white px-6 py-2 rounded-lg hover:bg-brick-600 disabled:opacity-50 transition-colors"
           >
             Ripristina Domande di Esempio
           </button>
@@ -375,73 +375,80 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-xl shadow-2xl p-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            Esame Provinciale Brescia
-          </h1>
-          <p className="text-gray-600">
-            Preparazione per conducenti di servizi pubblici non di linea
-          </p>
-        </div>
+    <div className="min-h-screen bg-navy-900 flex items-center justify-center px-4 relative overflow-hidden">
+      {/* Ambient road-line accents */}
+      <div className="absolute inset-0 opacity-[0.07] pointer-events-none" style={{
+        backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 60px, #fff 60px, #fff 100px)',
+        transform: 'skewY(-6deg) scale(1.5)'
+      }}></div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="text-red-600 text-sm text-center">{error}</div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 disabled:opacity-50 font-medium transition-colors"
-          >
-            {loading ? 'Caricamento...' : (isLogin ? 'Accedi' : 'Registrati')}
-          </button>
-        </form>
-
-        <div className="text-center mt-6">
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-          >
-            {isLogin ? 'Non hai un account? Registrati' : 'Hai già un account? Accedi'}
-          </button>
-        </div>
-
-        {/* Logo Autoscuola */}
-        <div className="mt-6 text-center">
+      <div className="max-w-md w-full relative">
+        <div className="text-center mb-6">
           <img
             src="/logo-autoscuola.png"
             alt="Autoscuola Desenzanese"
-            className="mx-auto h-16 object-contain"
+            className="mx-auto h-20 object-contain mb-4 bg-white rounded-xl p-3"
           />
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          <div className="text-center mb-8">
+            <h1 className="font-display text-3xl font-semibold text-navy-900 mb-2">
+              Esame Provinciale Brescia
+            </h1>
+            <p className="text-navy-400 text-sm">
+              Preparazione per conducenti di servizi pubblici non di linea
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-navy-900 mb-2">
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-3 border border-navy-100 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent outline-none transition-shadow"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-navy-900 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-navy-100 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent outline-none transition-shadow"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="text-brick-500 text-sm text-center font-medium">{error}</div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 focus:ring-4 focus:ring-navy-100 disabled:opacity-50 font-medium transition-colors"
+            >
+              {loading ? 'Caricamento...' : (isLogin ? 'Accedi' : 'Registrati')}
+            </button>
+          </form>
+
+          <div className="text-center mt-6">
+            <button
+              onClick={() => setIsLogin(!isLogin)}
+              className="text-navy-600 hover:text-navy-900 text-sm font-medium"
+            >
+              {isLogin ? 'Non hai un account? Registrati' : 'Hai già un account? Accedi'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -484,66 +491,66 @@ const ChangePasswordModal = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-navy-900 bg-opacity-60 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-bold text-gray-900">Cambia Password</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+          <h3 className="font-display text-xl font-semibold text-navy-900">Cambia Password</h3>
+          <button onClick={onClose} className="text-navy-400 hover:text-navy-900 text-2xl leading-none">&times;</button>
         </div>
 
         {success ? (
-          <div className="text-green-600 font-medium py-4 text-center">
+          <div className="text-leaf-500 font-medium py-4 text-center">
             Password aggiornata con successo!
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password attuale</label>
+              <label className="block text-sm font-medium text-navy-900 mb-1">Password attuale</label>
               <input
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-navy-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nuova password</label>
+              <label className="block text-sm font-medium text-navy-900 mb-1">Nuova password</label>
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-navy-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Conferma nuova password</label>
+              <label className="block text-sm font-medium text-navy-900 mb-1">Conferma nuova password</label>
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-navy-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600"
               />
             </div>
 
-            {error && <div className="text-red-600 text-sm">{error}</div>}
+            {error && <div className="text-brick-500 text-sm">{error}</div>}
 
             <div className="flex space-x-3 pt-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                className="flex-1 bg-paper text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-colors"
               >
                 Annulla
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                className="flex-1 bg-navy-900 text-white px-4 py-2 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-50"
               >
                 {loading ? 'Salvataggio...' : 'Salva'}
               </button>
@@ -551,6 +558,33 @@ const ChangePasswordModal = ({ onClose }) => {
           </form>
         )}
       </div>
+    </div>
+  );
+};
+
+// Speedometer-style gauge, used for the pass-rate stat — a nod to the
+// dashboard of the vehicles our candidates will be driving professionally.
+const SuccessGauge = ({ percentage }) => {
+  const radius = 80;
+  const circumference = Math.PI * radius;
+  const filled = (Math.min(100, Math.max(0, percentage)) / 100) * circumference;
+  const color = percentage >= 60 ? '#1E8E5A' : percentage > 0 ? '#D6273C' : '#D6DDE9';
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg viewBox="0 0 180 100" className="w-40 h-24">
+        <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="#EEF1F6" strokeWidth="14" strokeLinecap="round" />
+        <path
+          d="M 10 90 A 80 80 0 0 1 170 90"
+          fill="none"
+          stroke={color}
+          strokeWidth="14"
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${circumference}`}
+          style={{ transition: 'stroke-dasharray 0.6s ease' }}
+        />
+      </svg>
+      <span className="font-mono text-3xl font-semibold text-navy-900 -mt-6">{percentage}%</span>
     </div>
   );
 };
@@ -578,41 +612,41 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-xl">Caricamento...</div>
+      <div className="min-h-screen bg-paper flex items-center justify-center">
+        <div className="text-xl font-display text-navy-900">Caricamento...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-paper">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-navy-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-3">
               <img
                 src="/logo-autoscuola.png"
                 alt="Autoscuola Desenzanese"
-                className="h-10 object-contain"
+                className="h-10 object-contain bg-white rounded-md p-1"
               />
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="font-display text-xl font-semibold text-white">
                 Esame Provinciale Brescia
               </h1>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="text-gray-600">
+              <span className="text-navy-100 text-sm hidden sm:inline">
                 Benvenuto, {user?.username} {user?.is_admin && '👑'}
               </span>
               <button
                 onClick={() => setShowChangePassword(true)}
-                className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                className="bg-navy-700 text-white px-4 py-2 rounded-lg hover:bg-navy-600 transition-colors text-sm"
               >
                 Cambia Password
               </button>
               <button
                 onClick={logout}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                className="bg-brick-500 text-white px-4 py-2 rounded-lg hover:bg-brick-600 transition-colors text-sm"
               >
                 Logout
               </button>
@@ -628,18 +662,18 @@ const Dashboard = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Admin Panel Access */}
         {user?.is_admin && (
-          <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-6 rounded-xl mb-8">
+          <div className="bg-navy-700 text-white p-6 rounded-xl mb-8">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-bold mb-2">👑 Pannello Amministratore</h2>
-                <p className="opacity-90">Carica e gestisci le domande dell'esame</p>
+                <h2 className="font-display text-xl font-semibold mb-1">👑 Pannello Amministratore</h2>
+                <p className="text-navy-100 text-sm">Carica e gestisci le domande dell'esame</p>
               </div>
               <button
                 onClick={() => {
                   window.location.hash = '#admin';
                   window.location.reload();
                 }}
-                className="bg-white text-purple-600 px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+                className="bg-white text-navy-900 px-6 py-3 rounded-lg font-medium hover:bg-navy-50 transition-colors"
               >
                 Gestisci Domande 🔧
               </button>
@@ -649,41 +683,39 @@ const Dashboard = () => {
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Tentativi Totali</h3>
-            <p className="text-3xl font-bold text-blue-600">{stats?.total_attempts || 0}</p>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-navy-50">
+            <h3 className="text-sm font-medium text-navy-400 mb-1 uppercase tracking-wide">Tentativi Totali</h3>
+            <p className="font-mono text-3xl font-semibold text-navy-900">{stats?.total_attempts || 0}</p>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Esami Superati</h3>
-            <p className="text-3xl font-bold text-green-600">{stats?.passed_attempts || 0}</p>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-navy-50">
+            <h3 className="text-sm font-medium text-navy-400 mb-1 uppercase tracking-wide">Esami Superati</h3>
+            <p className="font-mono text-3xl font-semibold text-leaf-500">{stats?.passed_attempts || 0}</p>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Tasso di Successo</h3>
-            <p className="text-3xl font-bold text-purple-600">
-              {stats?.total_attempts > 0 ? Math.round((stats.passed_attempts / stats.total_attempts) * 100) : 0}%
-            </p>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-navy-50 flex flex-col items-center justify-center">
+            <h3 className="text-sm font-medium text-navy-400 mb-1 uppercase tracking-wide self-start">Tasso di Successo</h3>
+            <SuccessGauge percentage={stats?.total_attempts > 0 ? Math.round((stats.passed_attempts / stats.total_attempts) * 100) : 0} />
           </div>
         </div>
 
         {/* Subject Stats */}
-        <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Statistiche per Argomento</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6 mb-8">
+          <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">Statistiche per Argomento</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {Object.entries(stats?.by_subject || {}).map(([subject, data]) => (
-              <div key={subject} className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-medium text-gray-800 text-sm mb-2">{subject}</h3>
+              <div key={subject} className="p-4 bg-paper rounded-lg border border-navy-50">
+                <h3 className="font-medium text-navy-900 text-sm mb-2">{subject}</h3>
                 <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-sm text-navy-400">
                     <span>Tentativi:</span>
-                    <span className="font-medium">{data.attempts}</span>
+                    <span className="font-mono font-medium text-navy-900">{data.attempts}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-sm text-navy-400">
                     <span>Precisione:</span>
-                    <span className="font-medium">{Math.round(data.accuracy)}%</span>
+                    <span className="font-mono font-medium text-navy-900">{Math.round(data.accuracy)}%</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-sm text-navy-400">
                     <span>Miglior Score:</span>
-                    <span className="font-medium">{Math.round(data.best_score)}%</span>
+                    <span className="font-mono font-medium text-navy-900">{Math.round(data.best_score)}%</span>
                   </div>
                 </div>
               </div>
@@ -756,31 +788,31 @@ const QuizModeCard = ({ title, description, icon, type }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
+    <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6">
       <div className="text-center mb-4">
         <div className="text-4xl mb-2">{icon}</div>
-        <h3 className="text-xl font-bold text-gray-800 mb-2">{title}</h3>
-        <p className="text-gray-600 text-sm">{description}</p>
+        <h3 className="font-display text-lg font-semibold text-navy-900 mb-1">{title}</h3>
+        <p className="text-navy-400 text-sm">{description}</p>
       </div>
 
       {type === 'final_simulation' ? (
         <>
           <button
             onClick={() => setShowLanguages(!showLanguages)}
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 font-medium"
+            className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 transition-colors font-medium"
           >
             Inizia Simulazione
           </button>
 
           {showLanguages && (
             <div className="mt-4">
-              <p className="text-sm text-gray-600 mb-2 text-center">Scegli la lingua straniera per l'esame:</p>
+              <p className="text-sm text-navy-400 mb-2 text-center">Scegli la lingua straniera per l'esame:</p>
               <div className="space-y-2">
                 {languages.map((language) => (
                   <button
                     key={language}
                     onClick={() => startQuiz(null, language)}
-                    className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-sm"
+                    className="w-full text-left p-3 bg-paper hover:bg-navy-50 rounded-lg transition-colors text-sm text-navy-900"
                   >
                     {language}
                   </button>
@@ -793,7 +825,7 @@ const QuizModeCard = ({ title, description, icon, type }) => {
         <>
           <button
             onClick={() => setShowSubjects(!showSubjects)}
-            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 transition-colors font-medium"
           >
             Scegli Argomento
           </button>
@@ -804,7 +836,7 @@ const QuizModeCard = ({ title, description, icon, type }) => {
                 <button
                   key={subject}
                   onClick={() => startQuiz(subject)}
-                  className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-sm"
+                  className="w-full text-left p-3 bg-paper hover:bg-navy-50 rounded-lg transition-colors text-sm text-navy-900"
                 >
                   {subject}
                 </button>
@@ -874,40 +906,40 @@ const Quiz = () => {
   };
 
   if (!quizData) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-xl">Caricamento quiz...</div>
+    return <div className="min-h-screen bg-paper flex items-center justify-center">
+      <div className="text-xl font-display text-navy-900">Caricamento quiz...</div>
     </div>;
   }
 
   if (submitted && results) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-8">
+      <div className="min-h-screen bg-paper flex items-center justify-center px-4 py-8">
+        <div className="max-w-2xl w-full bg-white rounded-2xl shadow-lg p-8">
           <div className="text-center mb-8">
-            <div className={`text-6xl mb-4 ${results.passed ? 'text-green-500' : 'text-red-500'}`}>
+            <div className={`text-6xl mb-4 ${results.passed ? 'text-leaf-500' : 'text-brick-500'}`}>
               {results.passed ? '✅' : '❌'}
             </div>
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">
+            <h2 className="font-display text-3xl font-semibold text-navy-900 mb-2">
               {results.passed ? 'Esame Superato!' : 'Esame Non Superato'}
             </h2>
-            <p className="text-gray-600">
-              Hai risposto correttamente a {results.total_correct} su {results.total_questions} domande
+            <p className="text-navy-400">
+              Hai risposto correttamente a <span className="font-mono font-medium text-navy-900">{results.total_correct}</span> su <span className="font-mono font-medium text-navy-900">{results.total_questions}</span> domande
             </p>
           </div>
 
           <div className="space-y-4 mb-8">
             {Object.entries(results.score_by_subject).map(([subject, score]) => (
-              <div key={subject} className="p-4 bg-gray-50 rounded-lg">
+              <div key={subject} className="p-4 bg-paper rounded-lg border border-navy-50">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-800">{subject}</span>
-                  <span className="text-lg font-bold">
+                  <span className="font-medium text-navy-900">{subject}</span>
+                  <span className="font-mono text-lg font-semibold text-navy-900">
                     {score.correct}/{score.total}
                   </span>
                 </div>
-                <div className="mt-2 bg-gray-200 rounded-full h-2">
+                <div className="mt-2 bg-navy-50 rounded-full h-2">
                   <div
                     className={`h-2 rounded-full ${
-                      score.correct >= 3 ? 'bg-green-500' : 'bg-red-500'
+                      score.correct >= 3 ? 'bg-leaf-500' : 'bg-brick-500'
                     }`}
                     style={{ width: `${(score.correct / score.total) * 100}%` }}
                   ></div>
@@ -918,7 +950,7 @@ const Quiz = () => {
 
           {(quizData.quiz_type === 'by_subject' || quizData.quiz_type === 'final_simulation') && (
             <div className="mb-8">
-              <h3 className="text-xl font-bold text-gray-800 mb-4">Correzione</h3>
+              <h3 className="font-display text-xl font-semibold text-navy-900 mb-4">Correzione</h3>
               <div className="space-y-4">
                 {quizData.questions.map((question, index) => {
                   const userAnswer = answers[index];
@@ -926,20 +958,20 @@ const Quiz = () => {
                   const isCorrect = userAnswer === correctAnswer;
 
                   return (
-                    <div key={question.id} className="p-4 bg-gray-50 rounded-lg border">
+                    <div key={question.id} className="p-4 bg-paper rounded-lg border border-navy-50">
                       <div className="flex items-start gap-2 mb-3">
-                        <span className={`text-xl ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className={`text-xl ${isCorrect ? 'text-leaf-500' : 'text-brick-500'}`}>
                           {isCorrect ? '✓' : '✗'}
                         </span>
-                        <p className="font-medium text-gray-800">{question.question_text}</p>
+                        <p className="font-medium text-navy-900">{question.question_text}</p>
                       </div>
                       <div className="space-y-2 ml-7">
                         {question.options.map((option, optIndex) => {
-                          let style = 'text-gray-600';
+                          let style = 'text-navy-400';
                           if (optIndex === correctAnswer) {
-                            style = 'text-green-700 font-medium';
+                            style = 'text-leaf-600 font-medium';
                           } else if (optIndex === userAnswer && !isCorrect) {
-                            style = 'text-red-700 font-medium';
+                            style = 'text-brick-600 font-medium';
                           }
                           return (
                             <div key={optIndex} className={`text-sm ${style}`}>
@@ -950,7 +982,7 @@ const Quiz = () => {
                           );
                         })}
                         {userAnswer === -1 && (
-                          <div className="text-sm text-gray-500 italic">Nessuna risposta data</div>
+                          <div className="text-sm text-navy-400 italic">Nessuna risposta data</div>
                         )}
                       </div>
                     </div>
@@ -962,7 +994,7 @@ const Quiz = () => {
 
           <button
             onClick={goToDashboard}
-            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 transition-colors font-medium"
           >
             Torna alla Dashboard
           </button>
@@ -974,42 +1006,48 @@ const Quiz = () => {
   const currentQuestion = quizData.questions[currentQuestionIndex];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-paper">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold text-gray-800">
+            <h1 className="font-display text-xl font-semibold text-navy-900">
               {quizData.quiz_type === 'final_simulation' ? 'Simulazione Finale' : 
                quizData.quiz_type === 'free' ? 'Prova Libera' : 'Prova per Argomento'}
             </h1>
             {timeLeft && (
-              <div className="text-xl font-bold text-red-600">
+              <div className="font-mono text-xl font-semibold text-brick-500">
                 ⏰ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
               </div>
             )}
           </div>
           
           <div className="flex justify-between items-center">
-            <span className="text-gray-600">
-              Domanda {currentQuestionIndex + 1} di {quizData.questions.length}
+            <span className="text-navy-400 text-sm">
+              Domanda <span className="font-mono text-navy-900">{currentQuestionIndex + 1}</span> di <span className="font-mono text-navy-900">{quizData.questions.length}</span>
             </span>
-            <span className="text-gray-600">
+            <span className="text-navy-400 text-sm">
               {currentQuestion.subject}
             </span>
           </div>
           
-          <div className="mt-4 bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all"
-              style={{ width: `${((currentQuestionIndex + 1) / quizData.questions.length) * 100}%` }}
-            ></div>
+          {/* Segmented "road" progress indicator */}
+          <div className="mt-4 flex gap-1">
+            {quizData.questions.map((_, idx) => (
+              <div
+                key={idx}
+                className={`h-1.5 flex-1 rounded-full transition-colors ${
+                  idx < currentQuestionIndex ? 'bg-navy-600' :
+                  idx === currentQuestionIndex ? 'bg-brick-500' : 'bg-navy-50'
+                }`}
+              ></div>
+            ))}
           </div>
         </div>
 
         {/* Question */}
-        <div className="bg-white rounded-xl shadow-sm border p-8 mb-6">
-          <h2 className="text-xl font-medium text-gray-800 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-8 mb-6">
+          <h2 className="text-xl font-medium text-navy-900 mb-6">
             {currentQuestion.question_text}
           </h2>
           
@@ -1020,17 +1058,17 @@ const Quiz = () => {
               const isSelected = answers[currentQuestionIndex] === index;
               const isCorrectOption = index === currentQuestion.correct_answer;
 
-              let optionStyle = 'bg-gray-50 border-gray-200 hover:bg-gray-100';
+              let optionStyle = 'bg-paper border-navy-50 hover:bg-navy-50';
               if (isFreeMode && hasAnswered) {
                 if (isCorrectOption) {
-                  optionStyle = 'bg-green-100 border-green-500 text-green-800';
+                  optionStyle = 'bg-leaf-50 border-leaf-500 text-leaf-600';
                 } else if (isSelected) {
-                  optionStyle = 'bg-red-100 border-red-500 text-red-800';
+                  optionStyle = 'bg-brick-50 border-brick-500 text-brick-600';
                 } else {
-                  optionStyle = 'bg-gray-50 border-gray-200 opacity-60';
+                  optionStyle = 'bg-paper border-navy-50 opacity-60';
                 }
               } else if (isSelected) {
-                optionStyle = 'bg-blue-100 border-blue-500 text-blue-800';
+                optionStyle = 'bg-navy-50 border-navy-600 text-navy-900';
               }
 
               return (
@@ -1040,7 +1078,7 @@ const Quiz = () => {
                   disabled={hasAnswered}
                   className={`w-full p-4 text-left rounded-lg border transition-colors ${optionStyle} ${hasAnswered ? 'cursor-default' : ''}`}
                 >
-                  <span className="font-medium">{String.fromCharCode(65 + index)})</span> {option}
+                  <span className="font-mono font-medium">{String.fromCharCode(65 + index)})</span> {option}
                   {isFreeMode && hasAnswered && isCorrectOption && ' ✓'}
                   {isFreeMode && hasAnswered && isSelected && !isCorrectOption && ' ✗'}
                 </button>
@@ -1054,7 +1092,7 @@ const Quiz = () => {
           <button
             onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
             disabled={currentQuestionIndex === 0}
-            className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="bg-navy-100 text-navy-900 px-6 py-3 rounded-lg hover:bg-navy-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             ← Precedente
           </button>
@@ -1063,7 +1101,7 @@ const Quiz = () => {
             {quizData.quiz_type === 'free' && (
               <button
                 onClick={handleSubmit}
-                className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors font-medium"
+                className="bg-brick-500 text-white px-6 py-3 rounded-lg hover:bg-brick-600 transition-colors font-medium"
               >
                 Interrompi e Vedi Risultato
               </button>
@@ -1073,7 +1111,7 @@ const Quiz = () => {
               quizData.quiz_type !== 'free' && (
                 <button
                   onClick={handleSubmit}
-                  className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
+                  className="bg-leaf-500 text-white px-6 py-3 rounded-lg hover:bg-leaf-600 transition-colors font-medium"
                 >
                   Termina Quiz
                 </button>
@@ -1081,7 +1119,7 @@ const Quiz = () => {
             ) : (
               <button
                 onClick={() => setCurrentQuestionIndex(Math.min(quizData.questions.length - 1, currentQuestionIndex + 1))}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                className="bg-navy-900 text-white px-6 py-3 rounded-lg hover:bg-navy-700 transition-colors"
               >
                 Successiva →
               </button>
