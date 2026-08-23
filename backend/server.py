@@ -13,6 +13,9 @@ from datetime import datetime
 import json
 import random
 import hashlib
+import hmac
+import secrets
+from datetime import timedelta
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -48,7 +51,6 @@ class UserLogin(BaseModel):
     password: str
 
 class ChangePassword(BaseModel):
-    username: str
     current_password: str
     new_password: str
 
@@ -209,11 +211,69 @@ SAMPLE_QUESTIONS = {
     ]
 }
 
+PASSWORD_SCHEME = "scrypt"
+SESSION_TTL = timedelta(hours=8)
+
+
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password with a unique salt and a memory-hard KDF."""
+    salt = secrets.token_bytes(16)
+    derived_key = hashlib.scrypt(
+        password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32
+    )
+    return f"{PASSWORD_SCHEME}${salt.hex()}${derived_key.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify scrypt hashes and temporarily support legacy unsalted SHA-256."""
+    try:
+        scheme, salt_hex, expected_hex = stored_hash.split("$", 2)
+        if scheme != PASSWORD_SCHEME:
+            return False
+        actual = hashlib.scrypt(
+            password.encode("utf-8"),
+            salt=bytes.fromhex(salt_hex),
+            n=2**14,
+            r=8,
+            p=1,
+            dklen=32,
+        )
+        return hmac.compare_digest(actual.hex(), expected_hex)
+    except (TypeError, ValueError):
+        # Compatibility path: migrate these hashes at the next successful login.
+        legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(legacy, stored_hash)
+
+
+def is_legacy_password_hash(stored_hash: str) -> bool:
+    return not stored_hash.startswith(f"{PASSWORD_SCHEME}$")
+
+
+def token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def create_session(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = datetime.utcnow()
+    await db.sessions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "token_hash": token_digest(token),
+        "created_at": now,
+        "expires_at": now + SESSION_TTL,
+    })
+    return token
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    user = await db.users.find_one({"id": credentials.credentials})
+    now = datetime.utcnow()
+    session = await db.sessions.find_one({
+        "token_hash": token_digest(credentials.credentials),
+        "expires_at": {"$gt": now},
+    })
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication")
+    user = await db.users.find_one({"id": session["user_id"]})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid authentication")
     return User(**user)
@@ -225,6 +285,11 @@ async def get_admin_user(current_user: User = Depends(get_current_user)):
 
 # Initialize database with sample questions
 async def init_db():
+    # Enforce identity/session uniqueness and let MongoDB remove expired sessions.
+    await db.users.create_index("username", unique=True)
+    await db.sessions.create_index("token_hash", unique=True)
+    await db.sessions.create_index("expires_at", expireAfterSeconds=0)
+
     # Check if questions already exist
     existing_questions = await db.questions.count_documents({})
     if existing_questions == 0:
@@ -244,15 +309,22 @@ async def init_db():
             print(f"Inserted {len(questions_to_insert)} sample questions")
     
     # Create admin user if it doesn't exist
-    admin_user = await db.users.find_one({"username": "admin"})
+    admin_username = os.environ.get("ADMIN_USERNAME", "admin").strip()
+    admin_user = await db.users.find_one({"username": admin_username})
     if not admin_user:
+        admin_password = os.environ.get("ADMIN_INITIAL_PASSWORD")
+        if not admin_password or len(admin_password) < 12:
+            raise RuntimeError(
+                "ADMIN_INITIAL_PASSWORD must be configured with at least 12 characters "
+                "before the first startup"
+            )
         admin = User(
-            username="admin",
-            password_hash=hash_password("admin123"),
+            username=admin_username,
+            password_hash=hash_password(admin_password),
             is_admin=True
         )
         await db.users.insert_one(admin.dict())
-        print("Created admin user: admin/admin123")
+        logger.info("Initial administrator created")
 
 def validate_question_format(question_data: Dict[str, Any]) -> bool:
     """Validate that a question has the correct format"""
@@ -288,42 +360,70 @@ async def register_user(user_data: UserCreate):
     )
     
     await db.users.insert_one(user.dict())
+    token = await create_session(user.id)
     
     return {
         "message": "User registered successfully",
         "user_id": user.id,
-        "token": user.id  # Simple token system
+        "token": token
     }
 
 @api_router.post("/auth/login")
 async def login_user(login_data: UserLogin):
     user = await db.users.find_one({"username": login_data.username})
-    if not user or user["password_hash"] != hash_password(login_data.password):
+    if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if is_legacy_password_hash(user["password_hash"]):
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"password_hash": hash_password(login_data.password)}},
+        )
+
+    token = await create_session(user["id"])
     
     return {
         "message": "Login successful",
         "user_id": user["id"],
-        "token": user["id"],  # Simple token system
+        "token": token,
         "username": user["username"],
         "is_admin": user.get("is_admin", False)
     }
 
 @api_router.post("/auth/change-password")
-async def change_password(data: ChangePassword):
-    user = await db.users.find_one({"username": data.username})
-    if not user or user["password_hash"] != hash_password(data.current_password):
+async def change_password(data: ChangePassword, current_user: User = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user.id})
+    if not user or not verify_password(data.current_password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Password attuale non corretta")
 
-    if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="La nuova password deve avere almeno 6 caratteri")
+    if len(data.new_password) < 12:
+        raise HTTPException(status_code=400, detail="La nuova password deve avere almeno 12 caratteri")
+
+    if hmac.compare_digest(data.current_password, data.new_password):
+        raise HTTPException(status_code=400, detail="La nuova password deve essere diversa da quella attuale")
 
     await db.users.update_one(
-        {"username": data.username},
+        {"id": current_user.id},
         {"$set": {"password_hash": hash_password(data.new_password)}}
     )
 
-    return {"message": "Password aggiornata con successo"}
+    # Revoke every existing session and issue a fresh token for this device.
+    await db.sessions.delete_many({"user_id": current_user.id})
+    new_token = await create_session(current_user.id)
+
+    return {"message": "Password aggiornata con successo", "token": new_token}
+
+
+@api_router.post("/auth/logout")
+async def logout_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: User = Depends(get_current_user),
+):
+    await db.sessions.delete_one({
+        "token_hash": token_digest(credentials.credentials),
+        "user_id": current_user.id,
+    })
+    return {"message": "Logout successful"}
 
 # Admin endpoints for question management
 @api_router.get("/admin/questions-count")
@@ -561,6 +661,24 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
     quiz_attempt = await db.quiz_attempts.find_one({"id": quiz_id, "user_id": current_user.id})
     if not quiz_attempt:
         raise HTTPException(status_code=404, detail="Quiz not found")
+
+    if quiz_attempt.get("completed_at") is not None:
+        raise HTTPException(status_code=409, detail="Quiz already submitted")
+
+    expected_count = len(quiz_attempt["questions"])
+    if len(submit_data.answers) != expected_count:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Expected {expected_count} answers, received {len(submit_data.answers)}",
+        )
+
+    if any(not isinstance(answer, int) or answer < -1 for answer in submit_data.answers):
+        raise HTTPException(status_code=422, detail="Invalid answer value")
+
+    if quiz_attempt["quiz_type"] == "final_simulation":
+        elapsed = datetime.utcnow() - quiz_attempt["started_at"]
+        if elapsed > timedelta(seconds=1800):
+            raise HTTPException(status_code=410, detail="Quiz time limit exceeded")
     
     # Calculate score
     correct_count = 0
@@ -570,7 +688,13 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
     questions = []
     for q_id in quiz_attempt["questions"]:
         question = await db.questions.find_one({"id": q_id})
+        if question is None:
+            raise HTTPException(status_code=409, detail="Quiz questions are no longer available")
         questions.append(question)
+
+    for question, answer in zip(questions, submit_data.answers):
+        if answer >= len(question["options"]):
+            raise HTTPException(status_code=422, detail="Invalid answer value")
     
     # Calculate scores by subject
     for i, (question, user_answer) in enumerate(zip(questions, submit_data.answers)):
@@ -589,18 +713,25 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
     passed = False
     if quiz_attempt["quiz_type"] == "final_simulation":
         # Must have at least 3 correct per subject and max 8 total errors
-        total_errors = len(submit_data.answers) - correct_count
-        subject_requirements_met = all(
-            score["correct"] >= 3 for score in score_by_subject.values()
+        total_errors = expected_count - correct_count
+        expected_subjects = set(FIXED_SUBJECTS)
+        expected_subjects.update(
+            question["subject"] for question in questions
+            if question["subject"] in LANGUAGE_SUBJECTS
+        )
+        subject_requirements_met = (
+            len(expected_subjects) == 4
+            and set(score_by_subject) == expected_subjects
+            and all(score_by_subject[subject]["correct"] >= 3 for subject in expected_subjects)
         )
         passed = subject_requirements_met and total_errors <= 8
     else:
         # For other quiz types, consider passed if > 60% correct
-        passed = correct_count / len(submit_data.answers) > 0.6
+        passed = correct_count / expected_count > 0.6
     
     # Update quiz attempt
-    await db.quiz_attempts.update_one(
-        {"id": quiz_id},
+    update_result = await db.quiz_attempts.update_one(
+        {"id": quiz_id, "user_id": current_user.id, "completed_at": None},
         {
             "$set": {
                 "answers": submit_data.answers,
@@ -612,6 +743,8 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
             }
         }
     )
+    if update_result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Quiz already submitted")
     
     # Update user stats
     await db.users.update_one(
