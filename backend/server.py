@@ -72,6 +72,8 @@ class User(BaseModel):
     total_attempts: int = 0
     is_admin: bool = False
     token_version: int = 0
+    expires_at: Optional[datetime] = None  # None = no expiry (e.g. admin account)
+    active_session_id: Optional[str] = None  # enforces a single active login at a time
     
 class UserCreate(BaseModel):
     username: str
@@ -84,6 +86,14 @@ class UserLogin(BaseModel):
 class ChangePassword(BaseModel):
     current_password: str
     new_password: str
+
+class StudentCreate(BaseModel):
+    username: str
+    password: str
+    months: int = 6
+
+class StudentExtend(BaseModel):
+    months: int
 
 class Question(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -273,10 +283,21 @@ def verify_password(password: str, stored_hash: str) -> bool:
 def is_legacy_hash(stored_hash: str) -> bool:
     return not stored_hash.startswith('pbkdf2$')
 
-def create_access_token(user_id: str, token_version: int) -> str:
+def add_months(dt: datetime, months: int) -> datetime:
+    """Adds calendar months to a date, correctly rolling over year/month
+    boundaries and clamping the day if the target month is shorter."""
+    import calendar
+    month = dt.month - 1 + months
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+def create_access_token(user_id: str, token_version: int, session_id: str) -> str:
     payload = {
         'sub': user_id,
         'tv': token_version,
+        'sid': session_id,
         'iat': datetime.utcnow(),
         'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
     }
@@ -296,6 +317,16 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     # A password change bumps token_version, instantly invalidating older tokens
     if user.get("token_version", 0) != payload.get("tv", 0):
         raise HTTPException(status_code=401, detail="Sessione non più valida, effettua di nuovo il login")
+    # Single active session per account: a login elsewhere replaces
+    # active_session_id, which invalidates this (now stale) token.
+    token_sid = payload.get("sid")
+    current_sid = user.get("active_session_id")
+    if token_sid and current_sid and token_sid != current_sid:
+        raise HTTPException(status_code=401, detail="Hai effettuato l'accesso da un altro dispositivo. Effettua di nuovo il login.")
+    # Account expiry (e.g. a student's 6-month access window)
+    expires_at = user.get("expires_at")
+    if expires_at and datetime.utcnow() > expires_at:
+        raise HTTPException(status_code=401, detail="Il tuo accesso è scaduto. Contatta la scuola guida per il rinnovo.")
     return User(**user)
 
 async def get_admin_user(current_user: User = Depends(get_current_user)):
@@ -360,32 +391,18 @@ def validate_question_format(question_data: Dict[str, Any]) -> bool:
     return True
 
 # Auth endpoints
-@api_router.post("/auth/register")
-async def register_user(user_data: UserCreate, _rl: None = Depends(rate_limit("register", 8, 300))):
-    # Check if user exists
-    existing_user = await db.users.find_one({"username": user_data.username})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Create new user
-    user = User(
-        username=user_data.username,
-        password_hash=hash_password(user_data.password)
-    )
-    
-    await db.users.insert_one(user.dict())
-    
-    return {
-        "message": "User registered successfully",
-        "user_id": user.id,
-        "token": create_access_token(user.id, user.token_version)
-    }
-
+# Public self-registration is disabled: student accounts are provisioned
+# by the admin (see /admin/students below) so access can't be casually
+# shared, and general-public accounts will go through a future paid signup.
 @api_router.post("/auth/login")
 async def login_user(login_data: UserLogin, _rl: None = Depends(rate_limit("login", 10, 300))):
     user = await db.users.find_one({"username": login_data.username})
     if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    expires_at = user.get("expires_at")
+    if expires_at and datetime.utcnow() > expires_at:
+        raise HTTPException(status_code=403, detail="Il tuo accesso è scaduto. Contatta la scuola guida per il rinnovo.")
 
     # Transparently upgrade legacy (unsalted SHA-256) hashes to PBKDF2 on
     # a successful login, so old accounts get stronger security automatically.
@@ -395,11 +412,16 @@ async def login_user(login_data: UserLogin, _rl: None = Depends(rate_limit("logi
             {"$set": {"password_hash": hash_password(login_data.password)}}
         )
 
+    # A fresh session id here immediately invalidates any token issued to a
+    # previous login for this same account — one active session at a time.
+    session_id = secrets.token_hex(16)
+    await db.users.update_one({"id": user["id"]}, {"$set": {"active_session_id": session_id}})
+
     token_version = user.get("token_version", 0)
     return {
         "message": "Login successful",
         "user_id": user["id"],
-        "token": create_access_token(user["id"], token_version),
+        "token": create_access_token(user["id"], token_version, session_id),
         "username": user["username"],
         "is_admin": user.get("is_admin", False)
     }
@@ -427,8 +449,73 @@ async def change_password(data: ChangePassword, current_user: User = Depends(get
     # current session — otherwise the user would be logged out immediately.
     return {
         "message": "Password aggiornata con successo",
-        "token": create_access_token(current_user.id, new_token_version)
+        "token": create_access_token(current_user.id, new_token_version, current_user.active_session_id)
     }
+
+# Admin endpoints for student account management
+@api_router.post("/admin/students")
+async def create_student(data: StudentCreate, admin_user: User = Depends(get_admin_user)):
+    existing = await db.users.find_one({"username": data.username})
+    if existing:
+        raise HTTPException(status_code=400, detail="Questo username è già in uso")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="La password deve avere almeno 6 caratteri")
+    if not (1 <= data.months <= 60):
+        raise HTTPException(status_code=400, detail="Durata non valida (1-60 mesi)")
+
+    student = User(
+        username=data.username,
+        password_hash=hash_password(data.password),
+        is_admin=False,
+        expires_at=add_months(datetime.utcnow(), data.months)
+    )
+    await db.users.insert_one(student.dict())
+    return {
+        "id": student.id,
+        "username": student.username,
+        "expires_at": student.expires_at.isoformat()
+    }
+
+@api_router.get("/admin/students")
+async def list_students(admin_user: User = Depends(get_admin_user)):
+    students = await db.users.find({"is_admin": False}).to_list(2000)
+    now = datetime.utcnow()
+    return [
+        {
+            "id": s["id"],
+            "username": s["username"],
+            "created_at": s["created_at"].isoformat() if s.get("created_at") else None,
+            "expires_at": s["expires_at"].isoformat() if s.get("expires_at") else None,
+            "expired": bool(s.get("expires_at")) and s["expires_at"] < now
+        }
+        for s in sorted(students, key=lambda x: x.get("username", ""))
+    ]
+
+@api_router.post("/admin/students/{student_id}/extend")
+async def extend_student(student_id: str, data: StudentExtend, admin_user: User = Depends(get_admin_user)):
+    student = await db.users.find_one({"id": student_id, "is_admin": False})
+    if not student:
+        raise HTTPException(status_code=404, detail="Studente non trovato")
+    if not (1 <= data.months <= 60):
+        raise HTTPException(status_code=400, detail="Durata non valida (1-60 mesi)")
+
+    # Extend from the current expiry if still valid, otherwise from today
+    base = student.get("expires_at") or datetime.utcnow()
+    if base < datetime.utcnow():
+        base = datetime.utcnow()
+    new_expiry = add_months(base, data.months)
+
+    await db.users.update_one({"id": student_id}, {"$set": {"expires_at": new_expiry}})
+    return {"id": student_id, "expires_at": new_expiry.isoformat()}
+
+@api_router.delete("/admin/students/{student_id}")
+async def revoke_student(student_id: str, admin_user: User = Depends(get_admin_user)):
+    student = await db.users.find_one({"id": student_id, "is_admin": False})
+    if not student:
+        raise HTTPException(status_code=404, detail="Studente non trovato")
+    # Invalidate any active session immediately, then remove the account
+    await db.users.delete_one({"id": student_id})
+    return {"message": "Accesso revocato"}
 
 # Admin endpoints for question management
 @api_router.get("/admin/questions-count")
