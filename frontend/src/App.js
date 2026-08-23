@@ -226,7 +226,7 @@ const AdminPanel = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6 mb-8">
+      <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
         <div className="flex justify-between items-start mb-2">
           <h1 className="font-display text-2xl font-semibold text-navy-900">
             🔧 Pannello di Amministrazione
@@ -286,7 +286,7 @@ const AdminPanel = () => {
         {/* Upload Section */}
         <div className="space-y-6">
           {subjects.map((subject) => (
-            <div key={subject} className="border border-navy-50 rounded-lg p-6">
+            <div key={subject} className="border border-navy-200 rounded-lg p-6">
               <h3 className="text-lg font-semibold text-navy-900 mb-4">
                 📚 {subject}
               </h3>
@@ -479,12 +479,13 @@ const LoginPage = () => {
               backgroundImage: 'url(/login-bg.jpg)',
               backgroundSize: 'cover',
               backgroundPosition: 'center',
+              filter: 'brightness(1.25) saturate(1.05)',
             }}
           ></div>
           <div
             className="absolute inset-0"
             style={{
-              background: 'linear-gradient(180deg, rgba(11,22,38,0.55) 0%, rgba(11,22,38,0.8) 100%)',
+              background: 'linear-gradient(180deg, rgba(11,22,38,0.15) 0%, rgba(11,22,38,0.5) 100%)',
             }}
           ></div>
         </>
@@ -521,7 +522,7 @@ const LoginPage = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 border border-navy-100 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent outline-none transition-shadow"
+                className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors"
                 required
               />
             </div>
@@ -534,7 +535,7 @@ const LoginPage = () => {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-navy-100 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent outline-none transition-shadow"
+                className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors"
                 required
               />
             </div>
@@ -622,7 +623,7 @@ const ChangePasswordModal = ({ onClose }) => {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
-                className="w-full border border-navy-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600"
+                className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600 focus:bg-white transition-colors"
               />
             </div>
             <div>
@@ -633,7 +634,7 @@ const ChangePasswordModal = ({ onClose }) => {
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full border border-navy-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600"
+                className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600 focus:bg-white transition-colors"
               />
             </div>
             <div>
@@ -644,7 +645,7 @@ const ChangePasswordModal = ({ onClose }) => {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full border border-navy-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600"
+                className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-600 focus:bg-white transition-colors"
               />
             </div>
 
@@ -794,22 +795,22 @@ const Dashboard = () => {
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-navy-50">
+          <div className="bg-white p-6 rounded-xl shadow-md border border-navy-200">
             <h3 className="text-sm font-medium text-navy-400 mb-1 uppercase tracking-wide">Tentativi Totali</h3>
             <p className="font-mono text-3xl font-semibold text-navy-900">{stats?.total_attempts || 0}</p>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-navy-50">
+          <div className="bg-white p-6 rounded-xl shadow-md border border-navy-200">
             <h3 className="text-sm font-medium text-navy-400 mb-1 uppercase tracking-wide">Esami Superati</h3>
             <p className="font-mono text-3xl font-semibold text-leaf-500">{stats?.passed_attempts || 0}</p>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-navy-50 flex flex-col items-center justify-center">
+          <div className="bg-white p-6 rounded-xl shadow-md border border-navy-200 flex flex-col items-center justify-center">
             <h3 className="text-sm font-medium text-navy-400 mb-1 uppercase tracking-wide self-start">Tasso di Successo</h3>
             <SuccessGauge percentage={stats?.total_attempts > 0 ? Math.round((stats.passed_attempts / stats.total_attempts) * 100) : 0} />
           </div>
         </div>
 
         {/* Subject Stats */}
-        <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6 mb-8">
+        <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
           <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">Statistiche per Argomento</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {Object.entries(stats?.by_subject || {}).map(([subject, data]) => (
@@ -899,7 +900,7 @@ const QuizModeCard = ({ title, description, icon, type }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6">
+    <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6">
       <div className="text-center mb-4">
         <div className="text-4xl mb-2">{icon}</div>
         <h3 className="font-display text-lg font-semibold text-navy-900 mb-1">{title}</h3>
@@ -1120,7 +1121,7 @@ const Quiz = () => {
     <div className="min-h-screen bg-paper">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-6 mb-6">
+        <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
             <h1 className="font-display text-xl font-semibold text-navy-900">
               {quizData.quiz_type === 'final_simulation' ? 'Simulazione Finale' : 
@@ -1157,7 +1158,7 @@ const Quiz = () => {
         </div>
 
         {/* Question */}
-        <div className="bg-white rounded-xl shadow-sm border border-navy-50 p-8 mb-6">
+        <div className="bg-white rounded-xl shadow-md border border-navy-200 p-8 mb-6">
           <h2 className="text-xl font-medium text-navy-900 mb-6">
             {currentQuestion.question_text}
           </h2>
