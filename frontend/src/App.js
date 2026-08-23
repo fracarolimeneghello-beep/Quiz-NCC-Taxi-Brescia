@@ -351,6 +351,100 @@ const AdminPanel = () => {
   );
 };
 
+// Toggle between the two login background options: a photographic hero
+// shot, or the bespoke SVG skyline illustration. Change this one line to
+// compare them live.
+const LOGIN_BACKGROUND = 'photo'; // 'photo' | 'illustration'
+
+const SkylineArt = () => (
+  <svg width="100%" height="100%" viewBox="0 0 680 380" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', inset: 0 }}>
+    <defs>
+      <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#0B1626" />
+        <stop offset="55%" stopColor="#1D2A46" />
+        <stop offset="100%" stopColor="#3A1B2E" />
+      </linearGradient>
+    </defs>
+    <rect x="0" y="0" width="680" height="380" fill="url(#skyGrad)" />
+    <circle cx="560" cy="70" r="65" fill="#F3E9D2" opacity="0.05" />
+    <circle cx="560" cy="70" r="45" fill="#F3E9D2" opacity="0.09" />
+    <circle cx="560" cy="70" r="24" fill="#F3E9D2" opacity="0.85" />
+    <circle cx="80" cy="45" r="1.4" fill="#F3E9D2" opacity="0.7" />
+    <circle cx="140" cy="80" r="1.2" fill="#F3E9D2" opacity="0.5" />
+    <circle cx="200" cy="35" r="1.6" fill="#F3E9D2" opacity="0.8" />
+    <circle cx="260" cy="60" r="1.2" fill="#F3E9D2" opacity="0.6" />
+    <circle cx="320" cy="30" r="1.4" fill="#F3E9D2" opacity="0.7" />
+    <circle cx="30" cy="100" r="1.2" fill="#F3E9D2" opacity="0.5" />
+    <circle cx="410" cy="50" r="1.5" fill="#F3E9D2" opacity="0.75" />
+    <circle cx="470" cy="90" r="1.2" fill="#F3E9D2" opacity="0.5" />
+    <circle cx="630" cy="130" r="1.3" fill="#F3E9D2" opacity="0.6" />
+    <g fill="#1D3A66" opacity="0.55">
+      <rect x="0" y="190" width="60" height="70" />
+      <rect x="55" y="160" width="40" height="100" />
+      <rect x="90" y="200" width="50" height="60" />
+      <rect x="135" y="170" width="35" height="90" />
+      <rect x="165" y="210" width="55" height="50" />
+      <rect x="215" y="180" width="45" height="80" />
+      <rect x="395" y="205" width="50" height="55" />
+      <rect x="440" y="175" width="65" height="85" />
+      <rect x="500" y="200" width="45" height="60" />
+      <rect x="590" y="190" width="50" height="70" />
+    </g>
+    <g fill="#0B1626">
+      <rect x="0" y="220" width="80" height="80" />
+      <rect x="70" y="210" width="50" height="90" />
+      <rect x="195" y="190" width="55" height="110" />
+      <rect x="260" y="220" width="45" height="80" />
+      <rect x="315" y="170" width="60" height="130" />
+      <rect x="390" y="205" width="50" height="95" />
+      <rect x="455" y="185" width="65" height="115" />
+      <rect x="535" y="215" width="50" height="85" />
+      <rect x="600" y="155" width="75" height="145" />
+    </g>
+    <g>
+      <rect x="140" y="130" width="40" height="170" fill="#0B1626" />
+      <path d="M140,130 L160,100 L180,130 Z" fill="#0B1626" />
+      <circle cx="160" cy="93" r="3.5" fill="#0B1626" />
+    </g>
+    <g fill="#F3E9D2" opacity="0.75">
+      <rect x="14" y="235" width="6" height="8" />
+      <rect x="80" y="230" width="6" height="8" />
+      <rect x="205" y="210" width="6" height="8" />
+      <rect x="330" y="195" width="6" height="8" />
+      <rect x="345" y="215" width="6" height="8" />
+      <rect x="470" y="205" width="6" height="8" />
+      <rect x="550" y="235" width="6" height="8" />
+      <rect x="615" y="180" width="6" height="8" />
+      <rect x="625" y="210" width="6" height="8" />
+    </g>
+    <g fill="#D6273C" opacity="0.6">
+      <rect x="152" y="150" width="6" height="8" />
+      <rect x="620" y="240" width="6" height="8" />
+      <rect x="90" y="245" width="6" height="8" />
+    </g>
+    <rect x="0" y="292" width="680" height="10" fill="#D6273C" opacity="0.07" />
+    <path d="M310,300 L370,300 L680,380 L0,380 Z" fill="#12233F" />
+    <g fill="#F3E9D2" opacity="0.85">
+      <polygon points="337,306 343,306 344,312 336,312" />
+      <polygon points="333,325 347,325 349,335 331,335" />
+      <polygon points="327,352 353,352 357,366 323,366" />
+    </g>
+    <ellipse cx="486" cy="352" rx="55" ry="10" fill="#D6273C" opacity="0.1" />
+    <line x1="390" y1="344" x2="418" y2="344" stroke="#D6273C" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
+    <line x1="365" y1="347" x2="415" y2="347" stroke="#D6273C" strokeWidth="2" strokeLinecap="round" opacity="0.45" />
+    <line x1="345" y1="350" x2="412" y2="350" stroke="#D6273C" strokeWidth="2" strokeLinecap="round" opacity="0.25" />
+    <path d="M552,338 L612,323 L612,357 Z" fill="#F3E9D2" opacity="0.12" />
+    <circle cx="440" cy="352" r="9" fill="#0B1626" stroke="#F3E9D2" strokeWidth="1" opacity="0.9" />
+    <circle cx="440" cy="352" r="3" fill="#3A1B2E" />
+    <circle cx="520" cy="352" r="9" fill="#0B1626" stroke="#F3E9D2" strokeWidth="1" opacity="0.9" />
+    <circle cx="520" cy="352" r="3" fill="#3A1B2E" />
+    <path d="M420,350 L430,335 L450,330 L470,330 L480,320 L510,320 L520,330 L545,332 L552,345 L552,352 L420,352 Z" fill="#12233F" />
+    <path d="M450,330 L470,330 L466,340 L448,340 Z" fill="#1D3A66" opacity="0.6" />
+    <rect x="470" y="311" width="18" height="9" rx="2" fill="#D6273C" />
+    <rect x="466" y="308" width="26" height="15" rx="3" fill="#D6273C" opacity="0.18" />
+  </svg>
+);
+
 // Login Component
 const LoginPage = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -376,11 +470,28 @@ const LoginPage = () => {
 
   return (
     <div className="min-h-screen bg-navy-900 flex items-center justify-center px-4 relative overflow-hidden">
-      {/* Ambient road-line accents */}
-      <div className="absolute inset-0 opacity-[0.07] pointer-events-none" style={{
-        backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 60px, #fff 60px, #fff 100px)',
-        transform: 'skewY(-6deg) scale(1.5)'
-      }}></div>
+      {/* Background: photo or illustration, chosen via LOGIN_BACKGROUND above */}
+      {LOGIN_BACKGROUND === 'photo' ? (
+        <>
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: 'url(/login-bg.jpg)',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          ></div>
+          <div
+            className="absolute inset-0"
+            style={{
+              background: 'linear-gradient(180deg, rgba(11,22,38,0.55) 0%, rgba(11,22,38,0.8) 100%)',
+            }}
+          ></div>
+        </>
+      ) : (
+        <SkylineArt />
+      )}
+
 
       <div className="max-w-md w-full relative">
         <div className="text-center mb-6">
