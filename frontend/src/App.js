@@ -709,6 +709,62 @@ const SuccessGauge = ({ percentage }) => {
   );
 };
 
+// Line chart of score percentage over the last attempts, with a dashed
+// reference line at the 60% pass threshold.
+const ProgressChart = ({ history }) => {
+  if (!history || history.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-40 text-navy-400 text-sm">
+        Fai qualche quiz per vedere qui il tuo andamento
+      </div>
+    );
+  }
+
+  const width = 640;
+  const height = 180;
+  const padding = { top: 10, right: 10, bottom: 24, left: 34 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  const n = history.length;
+  const xFor = (i) => padding.left + (n === 1 ? chartWidth / 2 : (i / (n - 1)) * chartWidth);
+  const yFor = (pct) => padding.top + chartHeight - (Math.min(100, Math.max(0, pct)) / 100) * chartHeight;
+
+  const linePoints = history.map((h, i) => `${xFor(i)},${yFor(h.percentage)}`).join(' ');
+  const areaPoints = `${xFor(0)},${padding.top + chartHeight} ${linePoints} ${xFor(n - 1)},${padding.top + chartHeight}`;
+  const thresholdY = yFor(60);
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-44">
+      {/* Horizontal gridlines at 0/50/100% */}
+      {[0, 50, 100].map((pct) => (
+        <g key={pct}>
+          <line x1={padding.left} y1={yFor(pct)} x2={width - padding.right} y2={yFor(pct)} stroke="#EEF1F6" strokeWidth="1" />
+          <text x={padding.left - 8} y={yFor(pct) + 4} textAnchor="end" fontSize="10" fontFamily="IBM Plex Mono, monospace" fill="#3C557F">{pct}</text>
+        </g>
+      ))}
+
+      {/* 60% pass threshold */}
+      <line x1={padding.left} y1={thresholdY} x2={width - padding.right} y2={thresholdY} stroke="#D6273C" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
+
+      <polygon points={areaPoints} fill="#1D3A66" opacity="0.08" />
+      <polyline points={linePoints} fill="none" stroke="#12233F" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+      {history.map((h, i) => (
+        <circle
+          key={i}
+          cx={xFor(i)}
+          cy={yFor(h.percentage)}
+          r="4"
+          fill={h.passed ? '#1E8E5A' : '#D6273C'}
+          stroke="white"
+          strokeWidth="1.5"
+        />
+      ))}
+    </svg>
+  );
+};
+
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -841,6 +897,12 @@ const Dashboard = () => {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Progress Over Time */}
+        <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
+          <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">Andamento nel Tempo</h2>
+          <ProgressChart history={stats?.history} />
         </div>
 
         {/* Quiz Modes */}
