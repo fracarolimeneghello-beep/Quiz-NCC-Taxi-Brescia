@@ -5,6 +5,28 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// If any request comes back unauthenticated (session expired, password
+// changed elsewhere, or — most commonly here — someone else logged into
+// this same account from another device), clear the stale session and
+// send the person back to the login screen with a clear explanation,
+// instead of leaving them stuck on a page that silently stops working.
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && localStorage.getItem('token')) {
+      const detail = error.response?.data?.detail;
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (detail) {
+        localStorage.setItem('authNotice', detail);
+      }
+      window.location.hash = '';
+      window.location.reload();
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Auth Context
 const AuthContext = createContext();
 
@@ -47,23 +69,6 @@ const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (username, password) => {
-    try {
-      const response = await axios.post(`${API}/auth/register`, { username, password });
-      const { token: newToken } = response.data;
-      const userData = { username, is_admin: false };
-      setToken(newToken);
-      setUser(userData);
-      localStorage.setItem('token', newToken);
-      localStorage.setItem('user', JSON.stringify(userData));
-      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-      return { success: true };
-    } catch (error) {
-      console.error('Registration failed:', error);
-      return { success: false, message: error.response?.data?.detail };
-    }
-  };
-
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -95,7 +100,7 @@ const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, changePassword }}>
+    <AuthContext.Provider value={{ user, token, login, logout, changePassword }}>
       {children}
     </AuthContext.Provider>
   );
@@ -107,6 +112,11 @@ const AdminPanel = () => {
   const [loading, setLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState({});
   const [selectedFiles, setSelectedFiles] = useState({});
+  const [students, setStudents] = useState([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [newStudent, setNewStudent] = useState({ username: '', password: '', months: 6 });
+  const [studentError, setStudentError] = useState('');
+  const [extendMonths, setExtendMonths] = useState({});
   const { user } = useContext(AuthContext);
 
   const subjects = [
@@ -122,8 +132,58 @@ const AdminPanel = () => {
   useEffect(() => {
     if (user?.is_admin) {
       fetchQuestionCounts();
+      fetchStudents();
     }
   }, [user]);
+
+  const fetchStudents = async () => {
+    setStudentsLoading(true);
+    try {
+      const response = await axios.get(`${API}/admin/students`);
+      setStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
+
+  const createStudent = async (e) => {
+    e.preventDefault();
+    setStudentError('');
+    try {
+      await axios.post(`${API}/admin/students`, newStudent);
+      setNewStudent({ username: '', password: '', months: 6 });
+      fetchStudents();
+    } catch (error) {
+      setStudentError(error.response?.data?.detail || 'Errore durante la creazione dello studente');
+    }
+  };
+
+  const extendStudent = async (studentId) => {
+    const months = extendMonths[studentId] || 6;
+    try {
+      await axios.post(`${API}/admin/students/${studentId}/extend`, { months: Number(months) });
+      fetchStudents();
+    } catch (error) {
+      console.error('Error extending student:', error);
+    }
+  };
+
+  const revokeStudent = async (studentId, username) => {
+    if (!window.confirm(`Revocare l'accesso di "${username}"? L'account verrà eliminato definitivamente.`)) return;
+    try {
+      await axios.delete(`${API}/admin/students/${studentId}`);
+      fetchStudents();
+    } catch (error) {
+      console.error('Error revoking student:', error);
+    }
+  };
+
+  const formatDate = (iso) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
 
   const fetchQuestionCounts = async () => {
     try {
@@ -291,6 +351,112 @@ const AdminPanel = () => {
           ))}
         </div>
 
+        {/* Student Accounts */}
+        <div className="border border-navy-200 rounded-lg p-6 mb-8">
+          <h3 className="text-lg font-semibold text-navy-900 mb-1">🎓 Studenti</h3>
+          <p className="text-navy-400 text-sm mb-4">
+            Crea un account per ogni studente. La registrazione pubblica è disattivata: l'accesso arriva solo da qui.
+          </p>
+
+          <form onSubmit={createStudent} className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+            <input
+              type="text"
+              placeholder="Username"
+              value={newStudent.username}
+              onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })}
+              required
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 focus:bg-white"
+            />
+            <input
+              type="text"
+              placeholder="Password"
+              value={newStudent.password}
+              onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
+              required
+              minLength={6}
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 focus:bg-white"
+            />
+            <input
+              type="number"
+              min="1"
+              max="60"
+              value={newStudent.months}
+              onChange={(e) => setNewStudent({ ...newStudent, months: e.target.value })}
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 focus:bg-white"
+              title="Durata in mesi"
+            />
+            <button
+              type="submit"
+              className="bg-navy-900 text-white px-4 py-2 rounded-lg hover:bg-navy-700 transition-colors text-sm font-medium"
+            >
+              Crea Studente
+            </button>
+          </form>
+          {studentError && <div className="text-brick-500 text-sm mb-4">{studentError}</div>}
+
+          {studentsLoading ? (
+            <p className="text-navy-400 text-sm">Caricamento...</p>
+          ) : students.length === 0 ? (
+            <p className="text-navy-400 text-sm">Nessuno studente ancora creato.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-navy-400 border-b border-navy-100">
+                    <th className="py-2 pr-4">Username</th>
+                    <th className="py-2 pr-4">Scadenza</th>
+                    <th className="py-2 pr-4">Stato</th>
+                    <th className="py-2 pr-4">Estendi</th>
+                    <th className="py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((s) => (
+                    <tr key={s.id} className="border-b border-navy-50">
+                      <td className="py-2 pr-4 font-medium text-navy-900">{s.username}</td>
+                      <td className="py-2 pr-4 font-mono text-navy-900">{formatDate(s.expires_at)}</td>
+                      <td className="py-2 pr-4">
+                        {s.expired ? (
+                          <span className="text-brick-500 font-medium">Scaduto</span>
+                        ) : (
+                          <span className="text-leaf-600 font-medium">Attivo</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="60"
+                            placeholder="mesi"
+                            value={extendMonths[s.id] ?? ''}
+                            onChange={(e) => setExtendMonths({ ...extendMonths, [s.id]: e.target.value })}
+                            className="w-16 bg-paper border border-navy-200 rounded px-2 py-1 text-xs"
+                          />
+                          <button
+                            onClick={() => extendStudent(s.id)}
+                            className="text-navy-600 hover:text-navy-900 text-xs font-medium"
+                          >
+                            Estendi
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => revokeStudent(s.id, s.username)}
+                          className="text-brick-500 hover:text-brick-600 text-xs font-medium"
+                        >
+                          Revoca
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* Upload Section */}
         <div className="space-y-6">
           {subjects.map((subject) => (
@@ -455,22 +621,25 @@ const SkylineArt = () => (
 
 // Login Component
 const LoginPage = () => {
-  const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const { login, register } = useContext(AuthContext);
+  const [error, setError] = useState(() => {
+    const notice = localStorage.getItem('authNotice');
+    if (notice) localStorage.removeItem('authNotice');
+    return notice || '';
+  });
+  const { login } = useContext(AuthContext);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    const result = isLogin ? await login(username, password) : await register(username, password);
+    const result = await login(username, password);
     
     if (!result.success) {
-      setError(result.message || (isLogin ? 'Login fallito. Controlla le credenziali.' : 'Registrazione fallita.'));
+      setError(result.message || 'Login fallito. Controlla le credenziali.');
     }
     
     setLoading(false);
@@ -557,18 +726,13 @@ const LoginPage = () => {
               disabled={loading}
               className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 focus:ring-4 focus:ring-navy-100 disabled:opacity-50 font-medium transition-colors"
             >
-              {loading ? 'Caricamento...' : (isLogin ? 'Accedi' : 'Registrati')}
+              {loading ? 'Caricamento...' : 'Accedi'}
             </button>
           </form>
 
-          <div className="text-center mt-6">
-            <button
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-navy-600 hover:text-navy-900 text-sm font-medium"
-            >
-              {isLogin ? 'Non hai un account? Registrati' : 'Hai già un account? Accedi'}
-            </button>
-          </div>
+          <p className="text-center text-xs text-navy-400 mt-6">
+            Le credenziali vengono fornite dalla scuola guida. Se non le hai ancora ricevute, contatta la segreteria.
+          </p>
         </div>
       </div>
     </div>
