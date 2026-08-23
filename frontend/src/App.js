@@ -40,10 +40,10 @@ const AuthProvider = ({ children }) => {
       localStorage.setItem('token', newToken);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-      return true;
+      return { success: true };
     } catch (error) {
       console.error('Login failed:', error);
-      return false;
+      return { success: false, message: error.response?.data?.detail };
     }
   };
 
@@ -57,10 +57,10 @@ const AuthProvider = ({ children }) => {
       localStorage.setItem('token', newToken);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-      return true;
+      return { success: true };
     } catch (error) {
       console.error('Registration failed:', error);
-      return false;
+      return { success: false, message: error.response?.data?.detail };
     }
   };
 
@@ -74,11 +74,19 @@ const AuthProvider = ({ children }) => {
 
   const changePassword = async (currentPassword, newPassword) => {
     try {
-      await axios.post(`${API}/auth/change-password`, {
-        username: user.username,
+      const response = await axios.post(`${API}/auth/change-password`, {
         current_password: currentPassword,
         new_password: newPassword
       });
+      // Changing the password invalidates the previous session token on the
+      // server, which issues a fresh one for this browser tab — save it,
+      // or the very next request would get rejected as unauthenticated.
+      const newToken = response.data.token;
+      if (newToken) {
+        setToken(newToken);
+        localStorage.setItem('token', newToken);
+        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+      }
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.detail || 'Errore durante il cambio password';
@@ -459,10 +467,10 @@ const LoginPage = () => {
     setLoading(true);
     setError('');
 
-    const success = isLogin ? await login(username, password) : await register(username, password);
+    const result = isLogin ? await login(username, password) : await register(username, password);
     
-    if (!success) {
-      setError(isLogin ? 'Login fallito. Controlla le credenziali.' : 'Registrazione fallita.');
+    if (!result.success) {
+      setError(result.message || (isLogin ? 'Login fallito. Controlla le credenziali.' : 'Registrazione fallita.'));
     }
     
     setLoading(false);
@@ -836,7 +844,7 @@ const Dashboard = () => {
         </div>
 
         {/* Quiz Modes */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <QuizModeCard
             title="Prova Libera"
             description="Tutte le domande di un singolo argomento"
@@ -855,6 +863,13 @@ const Dashboard = () => {
             icon="⏰"
             type="final_simulation"
           />
+          <QuizModeCard
+            title="Ripassa Errori"
+            description="Solo le domande che hai sbagliato finora"
+            icon="🔁"
+            type="review_errors"
+            mistakesCount={stats?.mistakes_count || 0}
+          />
         </div>
       </div>
     </div>
@@ -862,7 +877,7 @@ const Dashboard = () => {
 };
 
 // Quiz Mode Card Component
-const QuizModeCard = ({ title, description, icon, type }) => {
+const QuizModeCard = ({ title, description, icon, type, mistakesCount }) => {
   const [showSubjects, setShowSubjects] = useState(false);
   const [showLanguages, setShowLanguages] = useState(false);
 
@@ -907,7 +922,22 @@ const QuizModeCard = ({ title, description, icon, type }) => {
         <p className="text-navy-400 text-sm">{description}</p>
       </div>
 
-      {type === 'final_simulation' ? (
+      {type === 'review_errors' ? (
+        <>
+          <button
+            onClick={() => startQuiz()}
+            disabled={!mistakesCount}
+            className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            {mistakesCount ? 'Inizia Ripasso' : 'Nessun errore da ripassare'}
+          </button>
+          {mistakesCount > 0 && (
+            <p className="text-center text-sm text-navy-400 mt-2 font-mono">
+              {mistakesCount} {mistakesCount === 1 ? 'domanda' : 'domande'} da ripassare
+            </p>
+          )}
+        </>
+      ) : type === 'final_simulation' ? (
         <>
           <button
             onClick={() => setShowLanguages(!showLanguages)}
@@ -968,6 +998,7 @@ const Quiz = () => {
   const [answers, setAnswers] = useState([]);
   const [timeLeft, setTimeLeft] = useState(null);
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
 
   useEffect(() => {
@@ -975,9 +1006,27 @@ const Quiz = () => {
     if (storedQuiz) {
       const quiz = JSON.parse(storedQuiz);
       setQuizData(quiz);
-      setAnswers(new Array(quiz.questions.length).fill(-1));
-      
-      if (quiz.time_limit) {
+
+      // Restore in-progress answers across a page reload instead of
+      // silently resetting everything to unanswered.
+      const storedAnswers = localStorage.getItem(`quizAnswers_${quiz.quiz_id}`);
+      if (storedAnswers) {
+        const parsed = JSON.parse(storedAnswers);
+        if (Array.isArray(parsed) && parsed.length === quiz.questions.length) {
+          setAnswers(parsed);
+        } else {
+          setAnswers(new Array(quiz.questions.length).fill(-1));
+        }
+      } else {
+        setAnswers(new Array(quiz.questions.length).fill(-1));
+      }
+
+      // Base the countdown on an absolute deadline (from the server) rather
+      // than a fixed duration, so reloading the page doesn't hand back extra time.
+      if (quiz.expires_at) {
+        const secondsLeft = Math.max(0, Math.round((new Date(quiz.expires_at).getTime() - Date.now()) / 1000));
+        setTimeLeft(secondsLeft);
+      } else if (quiz.time_limit) {
         setTimeLeft(quiz.time_limit);
       }
     }
@@ -996,22 +1045,38 @@ const Quiz = () => {
     const newAnswers = [...answers];
     newAnswers[currentQuestionIndex] = answerIndex;
     setAnswers(newAnswers);
+    if (quizData) {
+      localStorage.setItem(`quizAnswers_${quizData.quiz_id}`, JSON.stringify(newAnswers));
+    }
   };
 
   const handleSubmit = async () => {
+    if (submitting || submitted) return; // guards against double-click / double timeout-trigger
+    setSubmitting(true);
     try {
       const response = await axios.post(`${API}/quiz/${quizData.quiz_id}/submit`, {
         answers: answers
       });
       
+      localStorage.removeItem(`quizAnswers_${quizData.quiz_id}`);
       setResults(response.data);
       setSubmitted(true);
     } catch (error) {
       console.error('Error submitting quiz:', error);
+      // A 409 means this attempt was already submitted (e.g. from another
+      // tab, or a retried request) — treat it as done rather than stuck.
+      if (error.response?.status === 409) {
+        setSubmitted(true);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const goToDashboard = () => {
+    if (quizData) {
+      localStorage.removeItem(`quizAnswers_${quizData.quiz_id}`);
+    }
     localStorage.removeItem('currentQuiz');
     window.location.hash = '';
     window.location.reload();
@@ -1037,6 +1102,11 @@ const Quiz = () => {
             <p className="text-navy-400">
               Hai risposto correttamente a <span className="font-mono font-medium text-navy-900">{results.total_correct}</span> su <span className="font-mono font-medium text-navy-900">{results.total_questions}</span> domande
             </p>
+            {results.expired && (
+              <p className="text-brick-500 text-sm mt-2 font-medium">
+                Il tempo a disposizione (30 minuti) è scaduto prima della consegna: l'esame è considerato non superato.
+              </p>
+            )}
           </div>
 
           <div className="space-y-4 mb-8">
@@ -1125,7 +1195,8 @@ const Quiz = () => {
           <div className="flex justify-between items-center mb-4">
             <h1 className="font-display text-xl font-semibold text-navy-900">
               {quizData.quiz_type === 'final_simulation' ? 'Simulazione Finale' : 
-               quizData.quiz_type === 'free' ? 'Prova Libera' : 'Prova per Argomento'}
+               quizData.quiz_type === 'free' ? 'Prova Libera' :
+               quizData.quiz_type === 'review_errors' ? 'Ripassa Errori' : 'Prova per Argomento'}
             </h1>
             {timeLeft && (
               <div className="font-mono text-xl font-semibold text-brick-500">
@@ -1165,7 +1236,7 @@ const Quiz = () => {
           
           <div className="space-y-3">
             {currentQuestion.options.map((option, index) => {
-              const isFreeMode = quizData.quiz_type === 'free';
+              const isFreeMode = quizData.quiz_type === 'free' || quizData.quiz_type === 'review_errors';
               const hasAnswered = isFreeMode && answers[currentQuestionIndex] !== -1;
               const isSelected = answers[currentQuestionIndex] === index;
               const isCorrectOption = index === currentQuestion.correct_answer;
@@ -1210,22 +1281,24 @@ const Quiz = () => {
           </button>
 
           <div className="flex gap-3">
-            {quizData.quiz_type === 'free' && (
+            {(quizData.quiz_type === 'free' || quizData.quiz_type === 'review_errors') && (
               <button
                 onClick={handleSubmit}
-                className="bg-brick-500 text-white px-6 py-3 rounded-lg hover:bg-brick-600 transition-colors font-medium"
+                disabled={submitting}
+                className="bg-brick-500 text-white px-6 py-3 rounded-lg hover:bg-brick-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
               >
-                Interrompi e Vedi Risultato
+                {submitting ? 'Invio...' : 'Interrompi e Vedi Risultato'}
               </button>
             )}
 
             {currentQuestionIndex === quizData.questions.length - 1 ? (
-              quizData.quiz_type !== 'free' && (
+              quizData.quiz_type !== 'free' && quizData.quiz_type !== 'review_errors' && (
                 <button
                   onClick={handleSubmit}
-                  className="bg-leaf-500 text-white px-6 py-3 rounded-lg hover:bg-leaf-600 transition-colors font-medium"
+                  disabled={submitting}
+                  className="bg-leaf-500 text-white px-6 py-3 rounded-lg hover:bg-leaf-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                 >
-                  Termina Quiz
+                  {submitting ? 'Invio...' : 'Termina Quiz'}
                 </button>
               )
             ) : (
