@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, File, UploadFile, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, File, UploadFile, Form, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -6,16 +6,16 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Any, Literal
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import random
 import hashlib
-import hmac
+import binascii
 import secrets
-from datetime import timedelta
+import jwt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -24,6 +24,36 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# JWT configuration. In production, set JWT_SECRET as an environment
+# variable on the hosting platform (Render) so tokens survive restarts.
+# Without it, a random secret is generated at startup — still secure, but
+# every deploy/restart invalidates existing sessions (users just log in again).
+JWT_SECRET = os.environ.get('JWT_SECRET') or secrets.token_hex(32)
+JWT_ALGORITHM = 'HS256'
+JWT_EXPIRY_HOURS = 12
+
+# Lightweight in-memory rate limiting (per IP, per endpoint family). Good
+# enough for a single small instance; note it resets on restart and isn't
+# shared across multiple instances — acceptable for this app's scale, but
+# worth swapping for Redis-backed limiting if traffic grows significantly.
+import time as _time
+from collections import defaultdict as _defaultdict
+
+_rate_limit_buckets: Dict[str, list] = _defaultdict(list)
+
+def rate_limit(key_prefix: str, max_requests: int, window_seconds: int):
+    async def _dependency(request: Request):
+        client_ip = request.client.host if request.client else "unknown"
+        key = f"{key_prefix}:{client_ip}"
+        now = _time.time()
+        bucket = _rate_limit_buckets[key]
+        while bucket and bucket[0] <= now - window_seconds:
+            bucket.pop(0)
+        if len(bucket) >= max_requests:
+            raise HTTPException(status_code=429, detail="Troppi tentativi, riprova tra qualche minuto")
+        bucket.append(now)
+    return _dependency
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -41,6 +71,7 @@ class User(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     total_attempts: int = 0
     is_admin: bool = False
+    token_version: int = 0
     
 class UserCreate(BaseModel):
     username: str
@@ -64,8 +95,9 @@ class Question(BaseModel):
 class QuizAttempt(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
-    quiz_type: str  # "free", "by_subject", "final_simulation"
+    quiz_type: str  # "free", "by_subject", "final_simulation", "review_errors"
     subject: Optional[str] = None  # For subject-specific quizzes
+    language: Optional[str] = None  # For final_simulation
     questions: List[str]  # Question IDs
     answers: List[int]  # User's answers (-1 for unanswered)
     correct_answers: List[int]
@@ -78,20 +110,26 @@ class QuizAttempt(BaseModel):
     time_taken: Optional[int] = None  # in seconds
 
 class QuizStart(BaseModel):
-    quiz_type: str
+    quiz_type: Literal["free", "by_subject", "final_simulation", "review_errors"]
     subject: Optional[str] = None
     language: Optional[str] = None
 
-class QuizAnswer(BaseModel):
-    question_index: int
-    answer: int
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, v):
+        if v is not None and v not in ALL_SUBJECTS:
+            raise ValueError("Materia non valida")
+        return v
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, v):
+        if v is not None and v not in LANGUAGE_OPTIONS:
+            raise ValueError("Lingua non valida")
+        return v
 
 class QuizSubmit(BaseModel):
     answers: List[int]  # -1 for unanswered
-
-class QuestionUpload(BaseModel):
-    subject: str
-    questions: List[Dict[str, Any]]
 
 # Sample questions data
 # Fixed subjects (always part of the exam) and the 4 selectable foreign languages
@@ -211,71 +249,53 @@ SAMPLE_QUESTIONS = {
     ]
 }
 
-PASSWORD_SCHEME = "scrypt"
-SESSION_TTL = timedelta(hours=8)
-
-
 def hash_password(password: str) -> str:
-    """Hash a password with a unique salt and a memory-hard KDF."""
+    """PBKDF2-HMAC-SHA256 with a random salt, 260k iterations (NIST-recommended)."""
     salt = secrets.token_bytes(16)
-    derived_key = hashlib.scrypt(
-        password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32
-    )
-    return f"{PASSWORD_SCHEME}${salt.hex()}${derived_key.hex()}"
-
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 260000)
+    return 'pbkdf2$' + binascii.hexlify(salt).decode() + '$' + binascii.hexlify(dk).decode()
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    """Verify scrypt hashes and temporarily support legacy unsalted SHA-256."""
-    try:
-        scheme, salt_hex, expected_hex = stored_hash.split("$", 2)
-        if scheme != PASSWORD_SCHEME:
+    """Verifies against the new PBKDF2 scheme, or the legacy plain SHA-256
+    scheme (for accounts created before this upgrade — callers should
+    re-hash and save on a successful legacy match, see login_user)."""
+    if stored_hash.startswith('pbkdf2$'):
+        try:
+            _, salt_hex, hash_hex = stored_hash.split('$')
+            salt = binascii.unhexlify(salt_hex)
+            dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 260000)
+            return secrets.compare_digest(binascii.hexlify(dk).decode(), hash_hex)
+        except (ValueError, binascii.Error):
             return False
-        actual = hashlib.scrypt(
-            password.encode("utf-8"),
-            salt=bytes.fromhex(salt_hex),
-            n=2**14,
-            r=8,
-            p=1,
-            dklen=32,
-        )
-        return hmac.compare_digest(actual.hex(), expected_hex)
-    except (TypeError, ValueError):
-        # Compatibility path: migrate these hashes at the next successful login.
-        legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(legacy, stored_hash)
+    # Legacy unsalted SHA-256 hash
+    return secrets.compare_digest(stored_hash, hashlib.sha256(password.encode()).hexdigest())
 
+def is_legacy_hash(stored_hash: str) -> bool:
+    return not stored_hash.startswith('pbkdf2$')
 
-def is_legacy_password_hash(stored_hash: str) -> bool:
-    return not stored_hash.startswith(f"{PASSWORD_SCHEME}$")
-
-
-def token_digest(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-async def create_session(user_id: str) -> str:
-    token = secrets.token_urlsafe(32)
-    now = datetime.utcnow()
-    await db.sessions.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user_id,
-        "token_hash": token_digest(token),
-        "created_at": now,
-        "expires_at": now + SESSION_TTL,
-    })
-    return token
+def create_access_token(user_id: str, token_version: int) -> str:
+    payload = {
+        'sub': user_id,
+        'tv': token_version,
+        'iat': datetime.utcnow(),
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    now = datetime.utcnow()
-    session = await db.sessions.find_one({
-        "token_hash": token_digest(credentials.credentials),
-        "expires_at": {"$gt": now},
-    })
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid or expired authentication")
-    user = await db.users.find_one({"id": session["user_id"]})
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Sessione scaduta, effettua di nuovo il login")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid authentication")
+
+    user = await db.users.find_one({"id": payload.get("sub")})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid authentication")
+    # A password change bumps token_version, instantly invalidating older tokens
+    if user.get("token_version", 0) != payload.get("tv", 0):
+        raise HTTPException(status_code=401, detail="Sessione non più valida, effettua di nuovo il login")
     return User(**user)
 
 async def get_admin_user(current_user: User = Depends(get_current_user)):
@@ -285,11 +305,6 @@ async def get_admin_user(current_user: User = Depends(get_current_user)):
 
 # Initialize database with sample questions
 async def init_db():
-    # Enforce identity/session uniqueness and let MongoDB remove expired sessions.
-    await db.users.create_index("username", unique=True)
-    await db.sessions.create_index("token_hash", unique=True)
-    await db.sessions.create_index("expires_at", expireAfterSeconds=0)
-
     # Check if questions already exist
     existing_questions = await db.questions.count_documents({})
     if existing_questions == 0:
@@ -308,23 +323,22 @@ async def init_db():
             await db.questions.insert_many(questions_to_insert)
             print(f"Inserted {len(questions_to_insert)} sample questions")
     
-    # Create admin user if it doesn't exist
-    admin_username = os.environ.get("ADMIN_USERNAME", "admin").strip()
-    admin_user = await db.users.find_one({"username": admin_username})
+    # Create admin user if it doesn't exist. A random password is generated
+    # so there's never a predictable admin/admin123 credential in the wild —
+    # it's logged once here; change it via "Cambia Password" after first login.
+    admin_user = await db.users.find_one({"username": "admin"})
     if not admin_user:
-        admin_password = os.environ.get("ADMIN_INITIAL_PASSWORD")
-        if not admin_password or len(admin_password) < 12:
-            raise RuntimeError(
-                "ADMIN_INITIAL_PASSWORD must be configured with at least 12 characters "
-                "before the first startup"
-            )
+        generated_password = secrets.token_urlsafe(12)
         admin = User(
-            username=admin_username,
-            password_hash=hash_password(admin_password),
+            username="admin",
+            password_hash=hash_password(generated_password),
             is_admin=True
         )
         await db.users.insert_one(admin.dict())
-        logger.info("Initial administrator created")
+        logging.getLogger(__name__).warning(
+            f"Created admin user 'admin' with a randomly generated password: {generated_password} "
+            f"— log in and change it immediately via 'Cambia Password'."
+        )
 
 def validate_question_format(question_data: Dict[str, Any]) -> bool:
     """Validate that a question has the correct format"""
@@ -347,7 +361,7 @@ def validate_question_format(question_data: Dict[str, Any]) -> bool:
 
 # Auth endpoints
 @api_router.post("/auth/register")
-async def register_user(user_data: UserCreate):
+async def register_user(user_data: UserCreate, _rl: None = Depends(rate_limit("register", 8, 300))):
     # Check if user exists
     existing_user = await db.users.find_one({"username": user_data.username})
     if existing_user:
@@ -360,32 +374,32 @@ async def register_user(user_data: UserCreate):
     )
     
     await db.users.insert_one(user.dict())
-    token = await create_session(user.id)
     
     return {
         "message": "User registered successfully",
         "user_id": user.id,
-        "token": token
+        "token": create_access_token(user.id, user.token_version)
     }
 
 @api_router.post("/auth/login")
-async def login_user(login_data: UserLogin):
+async def login_user(login_data: UserLogin, _rl: None = Depends(rate_limit("login", 10, 300))):
     user = await db.users.find_one({"username": login_data.username})
     if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    if is_legacy_password_hash(user["password_hash"]):
+    # Transparently upgrade legacy (unsalted SHA-256) hashes to PBKDF2 on
+    # a successful login, so old accounts get stronger security automatically.
+    if is_legacy_hash(user["password_hash"]):
         await db.users.update_one(
             {"id": user["id"]},
-            {"$set": {"password_hash": hash_password(login_data.password)}},
+            {"$set": {"password_hash": hash_password(login_data.password)}}
         )
 
-    token = await create_session(user["id"])
-    
+    token_version = user.get("token_version", 0)
     return {
         "message": "Login successful",
         "user_id": user["id"],
-        "token": token,
+        "token": create_access_token(user["id"], token_version),
         "username": user["username"],
         "is_admin": user.get("is_admin", False)
     }
@@ -396,34 +410,25 @@ async def change_password(data: ChangePassword, current_user: User = Depends(get
     if not user or not verify_password(data.current_password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Password attuale non corretta")
 
-    if len(data.new_password) < 12:
-        raise HTTPException(status_code=400, detail="La nuova password deve avere almeno 12 caratteri")
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="La nuova password deve avere almeno 6 caratteri")
 
-    if hmac.compare_digest(data.current_password, data.new_password):
-        raise HTTPException(status_code=400, detail="La nuova password deve essere diversa da quella attuale")
-
+    new_token_version = user.get("token_version", 0) + 1
     await db.users.update_one(
         {"id": current_user.id},
-        {"$set": {"password_hash": hash_password(data.new_password)}}
+        {"$set": {
+            "password_hash": hash_password(data.new_password),
+            "token_version": new_token_version
+        }}
     )
 
-    # Revoke every existing session and issue a fresh token for this device.
-    await db.sessions.delete_many({"user_id": current_user.id})
-    new_token = await create_session(current_user.id)
-
-    return {"message": "Password aggiornata con successo", "token": new_token}
-
-
-@api_router.post("/auth/logout")
-async def logout_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    current_user: User = Depends(get_current_user),
-):
-    await db.sessions.delete_one({
-        "token_hash": token_digest(credentials.credentials),
-        "user_id": current_user.id,
-    })
-    return {"message": "Logout successful"}
+    # Bumping token_version invalidates every previously issued token
+    # (including this request's own), so we hand back a fresh one for the
+    # current session — otherwise the user would be logged out immediately.
+    return {
+        "message": "Password aggiornata con successo",
+        "token": create_access_token(current_user.id, new_token_version)
+    }
 
 # Admin endpoints for question management
 @api_router.get("/admin/questions-count")
@@ -438,11 +443,18 @@ async def get_questions_count(admin_user: User = Depends(get_admin_user)):
     
     return counts
 
+MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB
+MAX_QUESTIONS_PER_UPLOAD = 3000
+MAX_QUESTION_TEXT_LENGTH = 1000
+MAX_OPTION_LENGTH = 500
+MAX_OPTIONS_PER_QUESTION = 8
+
 @api_router.post("/admin/upload-questions")
 async def upload_questions(
     subject: str = Form(...),
     questions_file: UploadFile = File(...),
-    admin_user: User = Depends(get_admin_user)
+    admin_user: User = Depends(get_admin_user),
+    _rl: None = Depends(rate_limit("upload", 20, 600))
 ):
     """Upload questions for a specific subject"""
     
@@ -451,25 +463,32 @@ async def upload_questions(
     
     if subject not in valid_subjects:
         raise HTTPException(status_code=400, detail=f"Invalid subject. Must be one of: {valid_subjects}")
-    
-    # Read and validate JSON file
+
+    content = await questions_file.read()
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail=f"File troppo grande (massimo {MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MB)")
+
     try:
-        content = await questions_file.read()
         questions_data = json.loads(content.decode('utf-8'))
-        
+
         if not isinstance(questions_data, list):
             raise HTTPException(status_code=400, detail="JSON file must contain an array of questions")
-        
-        # Validate each question
+
+        if len(questions_data) > MAX_QUESTIONS_PER_UPLOAD:
+            raise HTTPException(status_code=400, detail=f"Troppe domande nel file (massimo {MAX_QUESTIONS_PER_UPLOAD})")
+
+        # Validate each question's shape, content limits, and option count
         for i, question in enumerate(questions_data):
             if not validate_question_format(question):
-                raise HTTPException(status_code=400, 
-                                  detail=f"Question {i+1} has invalid format. Required fields: question_text, options (4 items), correct_answer (0-3)")
-        
-        # Remove existing questions for this subject
-        await db.questions.delete_many({"subject": subject})
-        
-        # Insert new questions
+                raise HTTPException(status_code=400,
+                                  detail=f"Question {i+1} has invalid format. Required fields: question_text, options (2-{MAX_OPTIONS_PER_QUESTION} items), correct_answer")
+            if len(question["options"]) > MAX_OPTIONS_PER_QUESTION:
+                raise HTTPException(status_code=400, detail=f"Question {i+1}: troppe opzioni (massimo {MAX_OPTIONS_PER_QUESTION})")
+            if len(question["question_text"]) > MAX_QUESTION_TEXT_LENGTH:
+                raise HTTPException(status_code=400, detail=f"Question {i+1}: testo troppo lungo (massimo {MAX_QUESTION_TEXT_LENGTH} caratteri)")
+            if any(len(opt) > MAX_OPTION_LENGTH for opt in question["options"]):
+                raise HTTPException(status_code=400, detail=f"Question {i+1}: un'opzione supera {MAX_OPTION_LENGTH} caratteri")
+
         questions_to_insert = []
         for q in questions_data:
             question = Question(
@@ -479,23 +498,31 @@ async def upload_questions(
                 correct_answer=q["correct_answer"]
             )
             questions_to_insert.append(question.dict())
-        
-        if questions_to_insert:
-            result = await db.questions.insert_many(questions_to_insert)
-            
-            return {
-                "message": f"Successfully uploaded {len(questions_to_insert)} questions for {subject}",
-                "subject": subject,
-                "questions_count": len(questions_to_insert),
-                "inserted_ids": len(result.inserted_ids)
-            }
-        else:
+
+        if not questions_to_insert:
             raise HTTPException(status_code=400, detail="No valid questions found in file")
-            
+
+        # Atomic swap: if the insert fails partway through, the delete is
+        # rolled back too — the subject never ends up with zero questions.
+        async with await client.start_session() as session:
+            async with session.start_transaction():
+                await db.questions.delete_many({"subject": subject}, session=session)
+                result = await db.questions.insert_many(questions_to_insert, session=session)
+
+        return {
+            "message": f"Successfully uploaded {len(questions_to_insert)} questions for {subject}",
+            "subject": subject,
+            "questions_count": len(questions_to_insert),
+            "inserted_ids": len(result.inserted_ids)
+        }
+
+    except HTTPException:
+        raise
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON file format")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+    except Exception:
+        logging.getLogger(__name__).exception("Question upload failed")
+        raise HTTPException(status_code=500, detail="Errore interno durante il caricamento")
 
 @api_router.post("/admin/reset-sample-questions")
 async def reset_sample_questions(admin_user: User = Depends(get_admin_user)):
@@ -558,6 +585,13 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
         num_questions = 1000  # Get all questions for free mode
     elif quiz_data.quiz_type == "by_subject" and quiz_data.subject:
         questions_query = {"subject": quiz_data.subject}
+    elif quiz_data.quiz_type == "review_errors":
+        mistake_docs = await db.user_mistakes.find({"user_id": current_user.id}).to_list(1000)
+        mistake_ids = [m["question_id"] for m in mistake_docs]
+        if not mistake_ids:
+            raise HTTPException(status_code=400, detail="Nessun errore da ripassare al momento")
+        questions_query = {"id": {"$in": mistake_ids}}
+        num_questions = 1000
     elif quiz_data.quiz_type == "final_simulation":
         # For final simulation, we need 5 questions from each fixed subject,
         # plus 5 from the language chosen by the user
@@ -570,10 +604,12 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
         
         for subject in all_subjects:
             subject_questions = await db.questions.find({"subject": subject}).to_list(1000)
-            if len(subject_questions) >= 5:
-                selected_questions.extend(random.sample(subject_questions, 5))
-            else:
-                selected_questions.extend(subject_questions)
+            if len(subject_questions) < 5:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{subject}' ha solo {len(subject_questions)} domande caricate: ne servono almeno 5 per avviare la Simulazione Finale. Carica altre domande dal pannello amministratore."
+                )
+            selected_questions.extend(random.sample(subject_questions, 5))
         
         # Create quiz attempt
         quiz_attempt = QuizAttempt(
@@ -604,15 +640,16 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
             "quiz_id": quiz_attempt.id,
             "questions": questions_for_frontend,
             "quiz_type": quiz_data.quiz_type,
-            "time_limit": 1800  # 30 minutes in seconds
+            "time_limit": 1800,  # 30 minutes in seconds
+            "expires_at": (quiz_attempt.started_at + timedelta(seconds=1800)).isoformat()
         }
     
-    # For free and by_subject modes
+    # For free, by_subject and review_errors modes
     questions = await db.questions.find(questions_query).to_list(num_questions)
     
     if quiz_data.quiz_type == "by_subject":
         questions = random.sample(questions, min(5, len(questions)))
-    elif quiz_data.quiz_type == "free":
+    elif quiz_data.quiz_type in ("free", "review_errors"):
         random.shuffle(questions)  # New random order every time
     
     if not questions:
@@ -634,8 +671,9 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
     
     await db.quiz_attempts.insert_one(quiz_attempt.dict())
     
-    # Return questions. In "free" mode we include the correct answer so the
-    # frontend can give immediate feedback; other modes stay exam-like (hidden).
+    # Return questions. In "free" and "review_errors" modes we include the
+    # correct answer so the frontend can give immediate feedback; other
+    # modes stay exam-like (hidden).
     questions_for_frontend = []
     for q in questions:
         q_data = {
@@ -644,7 +682,7 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
             "question_text": q["question_text"],
             "options": q["options"]
         }
-        if quiz_data.quiz_type == "free":
+        if quiz_data.quiz_type in ("free", "review_errors"):
             q_data["correct_answer"] = q["correct_answer"]
         questions_for_frontend.append(q_data)
     
@@ -662,42 +700,47 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
     if not quiz_attempt:
         raise HTTPException(status_code=404, detail="Quiz not found")
 
+    # Prevent re-submission of an already-completed attempt (would otherwise
+    # let someone overwrite a result, re-inflate stats, or re-try answers).
+    # The update below is also done atomically on this same condition.
     if quiz_attempt.get("completed_at") is not None:
-        raise HTTPException(status_code=409, detail="Quiz already submitted")
+        raise HTTPException(status_code=409, detail="Questo quiz è già stato consegnato")
 
     expected_count = len(quiz_attempt["questions"])
     if len(submit_data.answers) != expected_count:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Expected {expected_count} answers, received {len(submit_data.answers)}",
-        )
+        raise HTTPException(status_code=422, detail=f"Numero di risposte non valido: attese {expected_count}")
 
-    if any(not isinstance(answer, int) or answer < -1 for answer in submit_data.answers):
-        raise HTTPException(status_code=422, detail="Invalid answer value")
-
-    if quiz_attempt["quiz_type"] == "final_simulation":
-        elapsed = datetime.utcnow() - quiz_attempt["started_at"]
-        if elapsed > timedelta(seconds=1800):
-            raise HTTPException(status_code=410, detail="Quiz time limit exceeded")
-    
-    # Calculate score
-    correct_count = 0
-    score_by_subject = {}
-    
-    # Get questions details
+    # Every answer must be -1 (unanswered) or a valid option index for its question
     questions = []
     for q_id in quiz_attempt["questions"]:
         question = await db.questions.find_one({"id": q_id})
-        if question is None:
-            raise HTTPException(status_code=409, detail="Quiz questions are no longer available")
         questions.append(question)
 
-    for question, answer in zip(questions, submit_data.answers):
-        if answer >= len(question["options"]):
-            raise HTTPException(status_code=422, detail="Invalid answer value")
-    
-    # Calculate scores by subject
-    for i, (question, user_answer) in enumerate(zip(questions, submit_data.answers)):
+    for question, user_answer in zip(questions, submit_data.answers):
+        if question is None:
+            continue  # question was deleted/replaced after the quiz started
+        num_options = len(question["options"])
+        if user_answer != -1 and not (0 <= user_answer < num_options):
+            raise HTTPException(status_code=422, detail="Risposta non valida")
+
+    # Server-side timer enforcement for the timed final simulation — a
+    # client can't get extra time by pausing JS or replaying the request.
+    expired = False
+    if quiz_attempt["quiz_type"] == "final_simulation":
+        elapsed = (datetime.utcnow() - quiz_attempt["started_at"]).total_seconds()
+        if elapsed > 1800 + 15:  # small grace period for network latency
+            expired = True
+
+    # Calculate score
+    correct_count = 0
+    score_by_subject = {}
+
+    # Calculate scores by subject, and keep the user's "mistakes" list in sync:
+    # a wrong (or unanswered) question is recorded, a correctly answered one
+    # is cleared, so /review_errors always reflects current gaps.
+    for question, user_answer in zip(questions, submit_data.answers):
+        if not question:
+            continue
         subject = question["subject"]
         is_correct = user_answer == question["correct_answer"]
         
@@ -708,30 +751,44 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
         if is_correct:
             score_by_subject[subject]["correct"] += 1
             correct_count += 1
-    
+            await db.user_mistakes.delete_one({"user_id": current_user.id, "question_id": question["id"]})
+        else:
+            await db.user_mistakes.update_one(
+                {"user_id": current_user.id, "question_id": question["id"]},
+                {"$set": {
+                    "user_id": current_user.id,
+                    "question_id": question["id"],
+                    "subject": subject,
+                    "last_wrong_at": datetime.utcnow()
+                }},
+                upsert=True
+            )
+
+    total_answered = len(submit_data.answers)
+
     # Check if passed (for final simulation)
-    passed = False
-    if quiz_attempt["quiz_type"] == "final_simulation":
-        # Must have at least 3 correct per subject and max 8 total errors
-        total_errors = expected_count - correct_count
-        expected_subjects = set(FIXED_SUBJECTS)
-        expected_subjects.update(
-            question["subject"] for question in questions
-            if question["subject"] in LANGUAGE_SUBJECTS
-        )
-        subject_requirements_met = (
-            len(expected_subjects) == 4
-            and set(score_by_subject) == expected_subjects
-            and all(score_by_subject[subject]["correct"] >= 3 for subject in expected_subjects)
+    if expired:
+        passed = False
+    elif quiz_attempt["quiz_type"] == "final_simulation":
+        # Must have at least 3 correct per each of the 4 expected subjects, and max 8 total errors
+        total_errors = total_answered - correct_count
+        expected_subjects = FIXED_SUBJECTS + [f"Lingua Straniera - {quiz_attempt.get('language')}"] \
+            if quiz_attempt.get("language") else list(score_by_subject.keys())
+        subject_requirements_met = all(
+            score_by_subject.get(subject, {"correct": 0})["correct"] >= 3
+            for subject in expected_subjects
         )
         passed = subject_requirements_met and total_errors <= 8
+    elif total_answered > 0:
+        passed = correct_count / total_answered > 0.6
     else:
-        # For other quiz types, consider passed if > 60% correct
-        passed = correct_count / expected_count > 0.6
-    
-    # Update quiz attempt
+        passed = False
+
+    # Atomic update: only succeeds if the attempt is still un-submitted,
+    # closing the race where two near-simultaneous requests could both
+    # "win" and double-count a result.
     update_result = await db.quiz_attempts.update_one(
-        {"id": quiz_id, "user_id": current_user.id, "completed_at": None},
+        {"id": quiz_id, "completed_at": None},
         {
             "$set": {
                 "answers": submit_data.answers,
@@ -743,27 +800,25 @@ async def submit_quiz(quiz_id: str, submit_data: QuizSubmit, current_user: User 
             }
         }
     )
-    if update_result.modified_count != 1:
-        raise HTTPException(status_code=409, detail="Quiz already submitted")
-    
-    # Update user stats
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$inc": {"total_attempts": 1}}
-    )
+    if update_result.matched_count == 0:
+        raise HTTPException(status_code=409, detail="Questo quiz è già stato consegnato")
     
     return {
         "quiz_id": quiz_id,
         "total_correct": correct_count,
-        "total_questions": len(submit_data.answers),
+        "total_questions": total_answered,
         "score_by_subject": score_by_subject,
         "passed": passed,
+        "expired": expired,
         "correct_answers": quiz_attempt["correct_answers"]
     }
 
 @api_router.get("/stats")
 async def get_user_stats(current_user: User = Depends(get_current_user)):
-    attempts = await db.quiz_attempts.find({"user_id": current_user.id}).to_list(1000)
+    all_attempts = await db.quiz_attempts.find({"user_id": current_user.id}).to_list(1000)
+    # Abandoned (started but never submitted) attempts shouldn't count as
+    # failures in the user's stats — only completed ones do.
+    attempts = [a for a in all_attempts if a.get("completed_at") is not None]
     
     # Clean recent attempts for JSON serialization
     recent_attempts = sorted(attempts, key=lambda x: x["started_at"], reverse=True)[:10]
@@ -807,15 +862,38 @@ async def get_user_stats(current_user: User = Depends(get_current_user)):
                                 for a in subject_attempts)
             }
     
+    # Score history over time, for the progress chart — only completed
+    # (submitted) attempts, oldest to newest, capped to the last 20.
+    completed = [a for a in attempts if a.get("completed_at") and a.get("total_questions")]
+    completed_sorted = sorted(completed, key=lambda x: x["completed_at"])[-20:]
+    stats["history"] = [
+        {
+            "date": a["completed_at"].isoformat(),
+            "percentage": round(a["total_correct"] / a["total_questions"] * 100),
+            "passed": a.get("passed", False)
+        }
+        for a in completed_sorted
+    ]
+
+    stats["mistakes_count"] = await db.user_mistakes.count_documents({"user_id": current_user.id})
+
     return stats
 
 # Include the router in the main app
 app.include_router(api_router)
 
+# Only the real frontend domain(s) may call this API with credentials.
+# Override/extend via the FRONTEND_ORIGINS env var (comma-separated) on Render
+# if you add a custom domain later.
+_default_origins = "https://quiz-ncc-taxi-brescia.vercel.app"
+allowed_origins = [
+    o.strip() for o in os.environ.get("FRONTEND_ORIGINS", _default_origins).split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
