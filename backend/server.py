@@ -16,6 +16,9 @@ import hashlib
 import binascii
 import secrets
 import jwt
+import re
+import httpx
+from bs4 import BeautifulSoup
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -94,6 +97,10 @@ class StudentCreate(BaseModel):
 
 class StudentExtend(BaseModel):
     months: int
+
+class NoticeCreate(BaseModel):
+    title: str
+    body: str
 
 class Question(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -516,6 +523,139 @@ async def revoke_student(student_id: str, admin_user: User = Depends(get_admin_u
     # Invalidate any active session immediately, then remove the account
     await db.users.delete_one({"id": student_id})
     return {"message": "Accesso revocato"}
+
+@api_router.post("/admin/students/{student_id}/reset-password")
+async def reset_student_password(student_id: str, admin_user: User = Depends(get_admin_user)):
+    student = await db.users.find_one({"id": student_id, "is_admin": False})
+    if not student:
+        raise HTTPException(status_code=404, detail="Studente non trovato")
+
+    new_password = secrets.token_urlsafe(9)  # short, readable-ish temporary password
+    await db.users.update_one(
+        {"id": student_id},
+        {"$set": {
+            "password_hash": hash_password(new_password),
+            "token_version": student.get("token_version", 0) + 1,  # logs out any existing session
+            "active_session_id": None
+        }}
+    )
+    return {"username": student["username"], "new_password": new_password}
+
+# Notices ("what's new" / news feed) — a mix of things the admin writes by
+# hand (e.g. app updates) and automatic alerts (e.g. a new exam session
+# published by the Provincia), all shown to every logged-in user.
+@api_router.get("/notices")
+async def list_notices(current_user: User = Depends(get_current_user)):
+    notices = await db.notices.find().sort("created_at", -1).to_list(20)
+    return [
+        {
+            "id": n["id"],
+            "title": n["title"],
+            "body": n["body"],
+            "source": n.get("source", "admin"),
+            "url": n.get("url"),
+            "created_at": n["created_at"].isoformat()
+        }
+        for n in notices
+    ]
+
+@api_router.post("/admin/notices")
+async def create_notice(data: NoticeCreate, admin_user: User = Depends(get_admin_user)):
+    notice = {
+        "id": str(uuid.uuid4()),
+        "title": data.title,
+        "body": data.body,
+        "source": "admin",
+        "url": None,
+        "created_at": datetime.utcnow()
+    }
+    await db.notices.insert_one(notice)
+    return {"message": "Notizia pubblicata"}
+
+@api_router.delete("/admin/notices/{notice_id}")
+async def delete_notice(notice_id: str, admin_user: User = Depends(get_admin_user)):
+    result = await db.notices.delete_one({"id": notice_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Notizia non trovata")
+    return {"message": "Notizia eliminata"}
+
+# --- Automatic check for new NCC/Taxi exam session announcements on the
+# Provincia di Brescia website. Best-effort: if the site's markup changes,
+# this simply stops finding matches rather than breaking anything else.
+# Trigger it periodically with an external scheduler (e.g. cron-job.org)
+# hitting POST /api/check-bando?key=<BANDO_CHECK_SECRET> — see deploy notes.
+PROVINCIA_NOTIZIE_URL = "https://www.provincia.brescia.it/pagina133701_notizie.html"
+BANDO_REQUIRED_KEYWORDS = ["conducenti"]
+BANDO_ANY_KEYWORDS = ["non di linea", "ncc", "taxi"]
+
+async def _find_bando_notices():
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as http_client:
+        response = await http_client.get(
+            PROVINCIA_NOTIZIE_URL,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; QuizNCCBresciaBot/1.0)"}
+        )
+        response.raise_for_status()
+        html = response.text
+
+    soup = BeautifulSoup(html, "html.parser")
+    found = []
+    seen_ids = set()
+    for link in soup.find_all("a", href=True):
+        match = re.search(r"/area_letturaNotizia/(\d+)/", link["href"])
+        if not match:
+            continue
+        notice_id = match.group(1)
+        if notice_id in seen_ids:
+            continue
+
+        text = link.get_text(" ", strip=True)
+        parent = link.find_parent()
+        context = (text + " " + parent.get_text(" ", strip=True)) if parent else text
+        context_lower = context.lower()
+
+        if any(k in context_lower for k in BANDO_REQUIRED_KEYWORDS) and \
+           any(k in context_lower for k in BANDO_ANY_KEYWORDS):
+            seen_ids.add(notice_id)
+            full_url = link["href"] if link["href"].startswith("http") else f"https://www.provincia.brescia.it{link['href']}"
+            found.append({"id": notice_id, "title": text[:200] or "Nuovo avviso NCC", "url": full_url})
+
+    return found
+
+@api_router.post("/check-bando")
+async def check_bando(key: str = ""):
+    expected_key = os.environ.get("BANDO_CHECK_SECRET")
+    if not expected_key or key != expected_key:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        found = await _find_bando_notices()
+    except Exception:
+        logging.getLogger(__name__).exception("Bando check failed")
+        return {"checked": True, "error": "Impossibile verificare il sito in questo momento", "new_notices": 0}
+
+    state = await db.bando_watch.find_one({"_id": "state"})
+    known_ids = set(state.get("known_ids", [])) if state else set()
+    new_items = [item for item in found if item["id"] not in known_ids]
+
+    for item in new_items:
+        await db.notices.insert_one({
+            "id": str(uuid.uuid4()),
+            "title": "Nuova sessione d'esame NCC pubblicata dalla Provincia",
+            "body": item["title"],
+            "source": "auto-bando",
+            "url": item["url"],
+            "created_at": datetime.utcnow()
+        })
+
+    all_ids = known_ids | {item["id"] for item in found}
+    await db.bando_watch.update_one(
+        {"_id": "state"},
+        {"$set": {"known_ids": list(all_ids), "last_checked": datetime.utcnow()}},
+        upsert=True
+    )
+
+    return {"checked": True, "new_notices": len(new_items), "found_total": len(found)}
+
 
 # Admin endpoints for question management
 @api_router.get("/admin/questions-count")
