@@ -180,6 +180,16 @@ const AdminPanel = () => {
     }
   };
 
+  const resetStudentPassword = async (studentId, username) => {
+    if (!window.confirm(`Generare una nuova password temporanea per "${username}"?`)) return;
+    try {
+      const response = await axios.post(`${API}/admin/students/${studentId}/reset-password`);
+      window.alert(`Nuova password per ${response.data.username}:\n\n${response.data.new_password}\n\nComunicala allo studente. Non verrà mostrata di nuovo.`);
+    } catch (error) {
+      console.error('Error resetting password:', error);
+    }
+  };
+
   const formatDate = (iso) => {
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -442,12 +452,20 @@ const AdminPanel = () => {
                         </div>
                       </td>
                       <td className="py-2">
-                        <button
-                          onClick={() => revokeStudent(s.id, s.username)}
-                          className="text-brick-500 hover:text-brick-600 text-xs font-medium"
-                        >
-                          Revoca
-                        </button>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => resetStudentPassword(s.id, s.username)}
+                            className="text-navy-600 hover:text-navy-900 text-xs font-medium"
+                          >
+                            Reset Password
+                          </button>
+                          <button
+                            onClick={() => revokeStudent(s.id, s.username)}
+                            className="text-brick-500 hover:text-brick-600 text-xs font-medium"
+                          >
+                            Revoca
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -933,11 +951,49 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [notices, setNotices] = useState([]);
+  const [showNewNotice, setShowNewNotice] = useState(false);
+  const [newNotice, setNewNotice] = useState({ title: '', body: '' });
   const { user, logout } = useContext(AuthContext);
 
   useEffect(() => {
     fetchStats();
+    fetchNotices();
   }, []);
+
+  const fetchNotices = async () => {
+    try {
+      const response = await axios.get(`${API}/notices`);
+      setNotices(response.data);
+    } catch (error) {
+      console.error('Error fetching notices:', error);
+    }
+  };
+
+  const createNotice = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API}/admin/notices`, newNotice);
+      setNewNotice({ title: '', body: '' });
+      setShowNewNotice(false);
+      fetchNotices();
+    } catch (error) {
+      console.error('Error creating notice:', error);
+    }
+  };
+
+  const deleteNotice = async (noticeId) => {
+    try {
+      await axios.delete(`${API}/admin/notices/${noticeId}`);
+      fetchNotices();
+    } catch (error) {
+      console.error('Error deleting notice:', error);
+    }
+  };
+
+  const formatNoticeDate = (iso) => {
+    return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
 
   const fetchStats = async () => {
     try {
@@ -1000,6 +1056,81 @@ const Dashboard = () => {
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Notices */}
+        {(notices.length > 0 || user?.is_admin) && (
+          <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-display text-xl font-semibold text-navy-900">📢 Notizie</h2>
+              {user?.is_admin && (
+                <button
+                  onClick={() => setShowNewNotice(!showNewNotice)}
+                  className="text-navy-600 hover:text-navy-900 text-sm font-medium"
+                >
+                  {showNewNotice ? 'Annulla' : '+ Nuova notizia'}
+                </button>
+              )}
+            </div>
+
+            {showNewNotice && (
+              <form onSubmit={createNotice} className="mb-4 space-y-2 bg-paper p-4 rounded-lg">
+                <input
+                  type="text"
+                  placeholder="Titolo"
+                  value={newNotice.title}
+                  onChange={(e) => setNewNotice({ ...newNotice, title: e.target.value })}
+                  required
+                  className="w-full border border-navy-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-600"
+                />
+                <textarea
+                  placeholder="Testo della notizia"
+                  value={newNotice.body}
+                  onChange={(e) => setNewNotice({ ...newNotice, body: e.target.value })}
+                  required
+                  rows={3}
+                  className="w-full border border-navy-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-600"
+                />
+                <button type="submit" className="bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors">
+                  Pubblica
+                </button>
+              </form>
+            )}
+
+            {notices.length === 0 ? (
+              <p className="text-navy-400 text-sm">Nessuna notizia al momento.</p>
+            ) : (
+              <div className="space-y-3">
+                {notices.map((n) => (
+                  <div key={n.id} className="p-3 bg-paper rounded-lg border border-navy-50">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          {n.source === 'auto-bando' && <span className="text-xs">🏛️</span>}
+                          <h4 className="font-medium text-navy-900 text-sm">{n.title}</h4>
+                        </div>
+                        <p className="text-navy-600 text-sm mt-1">{n.body}</p>
+                        {n.url && (
+                          <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-navy-600 hover:text-navy-900 text-xs font-medium underline mt-1 inline-block">
+                            Vedi sul sito della Provincia →
+                          </a>
+                        )}
+                        <p className="text-navy-400 text-xs mt-1 font-mono">{formatNoticeDate(n.created_at)}</p>
+                      </div>
+                      {user?.is_admin && (
+                        <button
+                          onClick={() => deleteNotice(n.id)}
+                          className="text-brick-500 hover:text-brick-600 text-xs flex-shrink-0"
+                        >
+                          Elimina
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Admin Panel Access */}
         {user?.is_admin && (
           <div className="bg-navy-700 text-white p-6 rounded-xl mb-8">
