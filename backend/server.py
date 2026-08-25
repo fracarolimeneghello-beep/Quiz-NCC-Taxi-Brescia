@@ -621,7 +621,7 @@ async def _find_bando_notices():
 
     return found
 
-@api_router.post("/check-bando")
+@api_router.api_route("/check-bando", methods=["GET", "POST"])
 async def check_bando(key: str = ""):
     expected_key = os.environ.get("BANDO_CHECK_SECRET")
     if not expected_key or key != expected_key:
