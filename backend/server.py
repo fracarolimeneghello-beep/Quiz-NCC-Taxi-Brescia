@@ -607,6 +607,7 @@ async def _find_bando_notices(debug_info: dict = None):
     found = []
     seen_ids = set()
     area_notizia_count = 0
+    recent_titles = []
     for link in all_links:
         match = re.search(r"/area_letturaNotizia/(\d+)/", link["href"])
         if not match:
@@ -617,6 +618,8 @@ async def _find_bando_notices(debug_info: dict = None):
             continue
 
         text = link.get_text(" ", strip=True)
+        if text and len(recent_titles) < 20:
+            recent_titles.append(text[:120])
         parent = link.find_parent()
         context = (text + " " + parent.get_text(" ", strip=True)) if parent else text
         context_lower = context.lower()
@@ -633,6 +636,7 @@ async def _find_bando_notices(debug_info: dict = None):
             "html_length": len(html),
             "total_links": len(all_links),
             "area_notizia_links": area_notizia_count,
+            "recent_titles": recent_titles,
         })
 
     return found
