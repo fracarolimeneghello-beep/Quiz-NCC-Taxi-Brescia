@@ -588,22 +588,30 @@ PROVINCIA_NOTIZIE_URL = "https://www.provincia.brescia.it/pagina133701_notizie.h
 BANDO_REQUIRED_KEYWORDS = ["conducenti"]
 BANDO_ANY_KEYWORDS = ["non di linea", "ncc", "taxi"]
 
-async def _find_bando_notices():
+async def _find_bando_notices(debug_info: dict = None):
     async with httpx.AsyncClient(timeout=20, follow_redirects=True) as http_client:
         response = await http_client.get(
             PROVINCIA_NOTIZIE_URL,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; QuizNCCBresciaBot/1.0)"}
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
+            }
         )
         response.raise_for_status()
         html = response.text
 
     soup = BeautifulSoup(html, "html.parser")
+    all_links = soup.find_all("a", href=True)
     found = []
     seen_ids = set()
-    for link in soup.find_all("a", href=True):
+    area_notizia_count = 0
+    for link in all_links:
         match = re.search(r"/area_letturaNotizia/(\d+)/", link["href"])
         if not match:
             continue
+        area_notizia_count += 1
         notice_id = match.group(1)
         if notice_id in seen_ids:
             continue
@@ -619,6 +627,14 @@ async def _find_bando_notices():
             full_url = link["href"] if link["href"].startswith("http") else f"https://www.provincia.brescia.it{link['href']}"
             found.append({"id": notice_id, "title": text[:200] or "Nuovo avviso NCC", "url": full_url})
 
+    if debug_info is not None:
+        debug_info.update({
+            "status_code": response.status_code,
+            "html_length": len(html),
+            "total_links": len(all_links),
+            "area_notizia_links": area_notizia_count,
+        })
+
     return found
 
 @api_router.api_route("/check-bando", methods=["GET", "POST"])
@@ -627,11 +643,12 @@ async def check_bando(key: str = ""):
     if not expected_key or key != expected_key:
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    debug_info = {}
     try:
-        found = await _find_bando_notices()
-    except Exception:
+        found = await _find_bando_notices(debug_info)
+    except Exception as e:
         logging.getLogger(__name__).exception("Bando check failed")
-        return {"checked": True, "error": "Impossibile verificare il sito in questo momento", "new_notices": 0}
+        return {"checked": True, "error": f"Impossibile verificare il sito: {type(e).__name__}: {e}", "new_notices": 0, "debug": debug_info}
 
     state = await db.bando_watch.find_one({"_id": "state"})
     known_ids = set(state.get("known_ids", [])) if state else set()
@@ -654,7 +671,7 @@ async def check_bando(key: str = ""):
         upsert=True
     )
 
-    return {"checked": True, "new_notices": len(new_items), "found_total": len(found)}
+    return {"checked": True, "new_notices": len(new_items), "found_total": len(found), "debug": debug_info}
 
 
 # Admin endpoints for question management
