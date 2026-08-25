@@ -66,6 +66,12 @@ api_router = APIRouter(prefix="/api")
 
 security = HTTPBearer()
 
+@api_router.get("/health")
+async def health_check():
+    """Lightweight, no-DB endpoint — used to keep the free-tier instance
+    awake via an external ping, and as a simple uptime check."""
+    return {"status": "ok"}
+
 # Define Models
 class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
