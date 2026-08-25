@@ -624,8 +624,7 @@ async def _find_bando_notices(debug_info: dict = None):
         context = (text + " " + parent.get_text(" ", strip=True)) if parent else text
         context_lower = context.lower()
 
-        if any(k in context_lower for k in BANDO_REQUIRED_KEYWORDS) and \
-           any(k in context_lower for k in BANDO_ANY_KEYWORDS):
+        if any(k in context_lower for k in BANDO_REQUIRED_KEYWORDS):
             seen_ids.add(notice_id)
             full_url = link["href"] if link["href"].startswith("http") else f"https://www.provincia.brescia.it{link['href']}"
             found.append({"id": notice_id, "title": text[:200] or "Nuovo avviso NCC", "url": full_url})
