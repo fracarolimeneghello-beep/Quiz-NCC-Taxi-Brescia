@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, createContext } from 'react';
+import React, { useState, useEffect, useContext, createContext, useRef } from 'react';
 import './App.css';
 import axios from 'axios';
 
@@ -117,6 +117,9 @@ const AdminPanel = () => {
   const [newStudent, setNewStudent] = useState({ username: '', password: '', months: 6 });
   const [studentError, setStudentError] = useState('');
   const [extendMonths, setExtendMonths] = useState({});
+  const [poiCounts, setPoiCounts] = useState({ city: 0, province: 0 });
+  const [poiFiles, setPoiFiles] = useState({});
+  const [poiUploadStatus, setPoiUploadStatus] = useState({});
   const { user } = useContext(AuthContext);
 
   const subjects = [
@@ -133,8 +136,36 @@ const AdminPanel = () => {
     if (user?.is_admin) {
       fetchQuestionCounts();
       fetchStudents();
+      fetchPoiCounts();
     }
   }, [user]);
+
+  const fetchPoiCounts = async () => {
+    try {
+      const response = await axios.get(`${API}/admin/poi-count`);
+      setPoiCounts(response.data);
+    } catch (error) {
+      console.error('Error fetching POI counts:', error);
+    }
+  };
+
+  const uploadPoi = async (poiType) => {
+    const file = poiFiles[poiType];
+    if (!file) return;
+    setPoiUploadStatus(prev => ({ ...prev, [poiType]: { status: 'loading', message: 'Caricamento...' } }));
+    const formData = new FormData();
+    formData.append('poi_type', poiType);
+    formData.append('poi_file', file);
+    try {
+      const response = await axios.post(`${API}/admin/upload-poi`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setPoiUploadStatus(prev => ({ ...prev, [poiType]: { status: 'success', message: response.data.message } }));
+      fetchPoiCounts();
+    } catch (error) {
+      setPoiUploadStatus(prev => ({ ...prev, [poiType]: { status: 'error', message: error.response?.data?.detail || 'Errore durante il caricamento' } }));
+    }
+  };
 
   const fetchStudents = async () => {
     setStudentsLoading(true);
@@ -473,6 +504,55 @@ const AdminPanel = () => {
               </table>
             </div>
           )}
+        </div>
+
+        {/* POI Management (Prova Orale) */}
+        <div className="border border-navy-200 rounded-lg p-6 mb-8">
+          <h3 className="text-lg font-semibold text-navy-900 mb-1">🗺️ Punti Prova Orale</h3>
+          <p className="text-navy-400 text-sm mb-4">
+            Carica i punti (JSON) usati nella Prova Orale — città e provincia. Ogni caricamento sostituisce l'elenco precedente per quella categoria.
+          </p>
+
+          <div className="bg-navy-50 p-4 rounded-lg mb-4">
+            <pre className="text-xs text-navy-700 bg-white p-3 rounded overflow-x-auto border border-navy-100">
+{`[
+  { "name": "Piazza della Loggia", "category": "monumento", "lat": 45.5398, "lng": 10.2199 }
+]`}
+            </pre>
+          </div>
+
+          {[
+            { key: 'city', label: 'Punti Città (attualmente: ' + poiCounts.city + ')' },
+            { key: 'province', label: 'Punti Provincia (attualmente: ' + poiCounts.province + ')' },
+          ].map(({ key, label }) => (
+            <div key={key} className="mb-4">
+              <p className="text-sm font-medium text-navy-900 mb-2">{label}</p>
+              <div className="flex flex-col sm:flex-row gap-3 items-start">
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => setPoiFiles(prev => ({ ...prev, [key]: e.target.files[0] }))}
+                  className="block text-sm text-navy-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-navy-50 file:text-navy-900 hover:file:bg-navy-100"
+                />
+                <button
+                  onClick={() => uploadPoi(key)}
+                  disabled={!poiFiles[key]}
+                  className="bg-navy-900 text-white px-6 py-2 rounded-lg hover:bg-navy-700 disabled:opacity-50 transition-colors text-sm"
+                >
+                  Carica
+                </button>
+              </div>
+              {poiUploadStatus[key] && (
+                <div className={`mt-2 p-2 rounded text-sm ${
+                  poiUploadStatus[key].status === 'success' ? 'bg-leaf-50 text-leaf-600' :
+                  poiUploadStatus[key].status === 'error' ? 'bg-brick-50 text-brick-600' :
+                  'bg-navy-50 text-navy-900'
+                }`}>
+                  {poiUploadStatus[key].message}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Upload Section */}
@@ -949,6 +1029,7 @@ const ProgressChart = ({ history }) => {
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
+  const [oralStats, setOralStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [notices, setNotices] = useState([]);
@@ -959,7 +1040,17 @@ const Dashboard = () => {
   useEffect(() => {
     fetchStats();
     fetchNotices();
+    fetchOralStats();
   }, []);
+
+  const fetchOralStats = async () => {
+    try {
+      const response = await axios.get(`${API}/oral/stats`);
+      setOralStats(response.data);
+    } catch (error) {
+      console.error('Error fetching oral stats:', error);
+    }
+  };
 
   const fetchNotices = async () => {
     try {
@@ -1168,6 +1259,31 @@ const Dashboard = () => {
           </div>
         </div>
 
+        {/* Oral Stats Summary */}
+        {oralStats && (oralStats.simulations_total > 0 || oralStats.by_category.urbana.sessions > 0 || oralStats.by_category.provincia.sessions > 0 || oralStats.by_category.normativa.sessions > 0) && (
+          <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
+            <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">🗺️ Prova Orale — Andamento</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-paper rounded-lg p-4">
+                <p className="text-xs text-navy-400 uppercase tracking-wide mb-1">Cartografia Urbana</p>
+                <p className="font-mono text-2xl font-semibold text-navy-900">{oralStats.by_category.urbana.avg_score}/10</p>
+              </div>
+              <div className="bg-paper rounded-lg p-4">
+                <p className="text-xs text-navy-400 uppercase tracking-wide mb-1">Cartografia Provincia</p>
+                <p className="font-mono text-2xl font-semibold text-navy-900">{oralStats.by_category.provincia.avg_score}/10</p>
+              </div>
+              <div className="bg-paper rounded-lg p-4">
+                <p className="text-xs text-navy-400 uppercase tracking-wide mb-1">Normativa</p>
+                <p className="font-mono text-2xl font-semibold text-navy-900">{oralStats.by_category.normativa.avg_score}/10</p>
+              </div>
+              <div className="bg-paper rounded-lg p-4">
+                <p className="text-xs text-navy-400 uppercase tracking-wide mb-1">Simulazioni Superate</p>
+                <p className="font-mono text-2xl font-semibold text-navy-900">{oralStats.simulations_passed}/{oralStats.simulations_total}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Subject Stats */}
         <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
           <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">Statistiche per Argomento</h2>
@@ -1201,7 +1317,8 @@ const Dashboard = () => {
         </div>
 
         {/* Quiz Modes */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">📝 Prova Quiz</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <QuizModeCard
             title="Prova Libera"
             description="Tutte le domande di un singolo argomento"
@@ -1227,6 +1344,23 @@ const Dashboard = () => {
             type="review_errors"
             mistakesCount={stats?.mistakes_count || 0}
           />
+        </div>
+
+        {/* Oral Exam Entry */}
+        <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">🗺️ Prova Orale</h2>
+        <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6">
+          <div className="flex justify-between items-center flex-wrap gap-4">
+            <div>
+              <h3 className="font-medium text-navy-900 mb-1">Cartografia e Normativa</h3>
+              <p className="text-navy-400 text-sm">Percorsi in città, percorsi in provincia, normativa orale, e simulazione completa a punteggio</p>
+            </div>
+            <button
+              onClick={() => { window.location.hash = '#orale'; window.location.reload(); }}
+              className="bg-navy-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-navy-700 transition-colors whitespace-nowrap"
+            >
+              Inizia →
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1674,6 +1808,788 @@ const Quiz = () => {
 };
 
 // Main App Component
+// The 31 fixed points used in the oral exam's route-description test,
+// gathered from the paper map the exam committee uses. Kept static here
+// since the list rarely changes; can move to backend/admin if it needs
+// to be editable without a redeploy.
+const POI_CATEGORY_COLORS = {
+  monumento: '#12233F',
+  sanita: '#D6273C',
+  trasporti: '#1E8E5A',
+  hotel: '#B8860B',
+  ospedale: '#D6273C',
+  montagna: '#1E8E5A',
+  lago: '#3C557F',
+  enogastronomia: '#B8860B',
+  altro: '#12233F',
+};
+
+// Local-only microphone recording for self-review — nothing is uploaded or
+// saved anywhere; the clip lives only in the browser tab and disappears
+// when the component unmounts or a new recording starts.
+const AudioRecorder = () => {
+  const [recording, setRecording] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [error, setError] = useState('');
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+
+  const startRecording = async () => {
+    setError('');
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      setError('Il tuo browser non supporta la registrazione audio.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        setAudioUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecording(true);
+    } catch (err) {
+      setError('Impossibile accedere al microfono. Controlla i permessi del browser.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+    }
+  };
+
+  return (
+    <div className="bg-paper rounded-lg p-3">
+      <p className="text-xs text-navy-400 mb-2">🎙️ Facoltativo: registra la tua risposta a voce e riascoltala prima di darti un voto</p>
+      <div className="flex items-center gap-2 flex-wrap">
+        {!recording ? (
+          <button type="button" onClick={startRecording} className="bg-navy-900 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-navy-700 transition-colors">
+            ● Registra
+          </button>
+        ) : (
+          <button type="button" onClick={stopRecording} className="bg-brick-500 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-brick-600 transition-colors">
+            ■ Stop
+          </button>
+        )}
+        {audioUrl && <audio controls src={audioUrl} style={{ height: '32px', maxWidth: '220px' }} />}
+      </div>
+      {error && <p className="text-brick-500 text-xs mt-1">{error}</p>}
+    </div>
+  );
+};
+
+// 0-10 self-score, matching the real commission's scale (5 questions x 10 = 50, pass at 30).
+const ScoreSelector = ({ onSubmit, submitting }) => {
+  const [score, setScore] = useState(null);
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1 mb-3">
+        {[...Array(11)].map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setScore(i)}
+            className={`w-8 h-8 rounded text-sm font-mono font-medium transition-colors ${score === i ? 'bg-navy-900 text-white' : 'bg-paper text-navy-900 hover:bg-navy-50'}`}
+          >
+            {i}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        disabled={score === null || submitting}
+        onClick={() => onSubmit(score)}
+        className="bg-leaf-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-leaf-600 disabled:opacity-50 transition-colors"
+      >
+        {submitting ? 'Salvataggio...' : 'Conferma punteggio'}
+      </button>
+    </div>
+  );
+};
+
+const RUBRIC_TEXT = {
+  urbana: '8-10: hai nominato tutte le vie principali nell\'ordine corretto · 5-7: 1-2 errori o ordine impreciso · 0-4: risposta incompleta o molto sbagliata',
+  provincia: '8-10: direzione corretta, comuni principali citati, conosci un\'alternativa · 5-7: direzione corretta ma comuni imprecisi o nessuna alternativa · 0-4: direzione sbagliata o risposta molto incompleta',
+  normativa: '8-10: risposta completa e corretta · 5-7: risposta parziale o imprecisa · 0-4: risposta sbagliata o assente',
+};
+
+const OralExamPrep = () => {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersLayerRef = useRef(null);
+  const routeLayerRef = useRef(null);
+
+  const [poiCity, setPoiCity] = useState([]);
+  const [poiProvince, setPoiProvince] = useState([]);
+  const [poiLoading, setPoiLoading] = useState(true);
+  const [oralStats, setOralStats] = useState(null);
+
+  const [category, setCategory] = useState('urbana'); // urbana | provincia | normativa | simulazione
+  const [subMode, setSubMode] = useState('guided'); // guided | quiz (only for urbana/provincia)
+
+  const [fromPoi, setFromPoi] = useState('');
+  const [toPoi, setToPoi] = useState('');
+  const [provinceSearch, setProvinceSearch] = useState('');
+  const [provinceSearchResults, setProvinceSearchResults] = useState([]);
+  const [provinceCustomDest, setProvinceCustomDest] = useState(null);
+
+  const [routeData, setRouteData] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState('');
+  const [quizPair, setQuizPair] = useState(null);
+  const [revealed, setRevealed] = useState(false);
+  const [scoreSaving, setScoreSaving] = useState(false);
+  const [lastScoreMsg, setLastScoreMsg] = useState('');
+
+  const [normativaQuestion, setNormativaQuestion] = useState(null);
+  const [normativaLoading, setNormativaLoading] = useState(false);
+  const [normativaRevealed, setNormativaRevealed] = useState(false);
+
+  // Simulation sequence state
+  const [simSteps, setSimSteps] = useState(null); // array of {type, from, to, question}
+  const [simIndex, setSimIndex] = useState(0);
+  const [simScores, setSimScores] = useState([]);
+  const [simTimeLeft, setSimTimeLeft] = useState(null);
+  const [simRevealed, setSimRevealed] = useState(false);
+  const [simRouteData, setSimRouteData] = useState(null);
+  const [simDone, setSimDone] = useState(false);
+  const [simResult, setSimResult] = useState(null);
+
+  useEffect(() => {
+    fetchPoi();
+    fetchOralStats();
+  }, []);
+
+  const fetchPoi = async () => {
+    setPoiLoading(true);
+    try {
+      const response = await axios.get(`${API}/poi`);
+      setPoiCity(response.data.city || []);
+      setPoiProvince(response.data.province || []);
+    } catch (error) {
+      console.error('Error fetching POI:', error);
+    } finally {
+      setPoiLoading(false);
+    }
+  };
+
+  const fetchOralStats = async () => {
+    try {
+      const response = await axios.get(`${API}/oral/stats`);
+      setOralStats(response.data);
+    } catch (error) {
+      console.error('Error fetching oral stats:', error);
+    }
+  };
+
+  // Map init (once POIs are loaded)
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current || !window.L || poiLoading) return;
+    const map = window.L.map(mapRef.current).setView([45.55, 10.3], 10);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19
+    }).addTo(map);
+    mapInstanceRef.current = map;
+    markersLayerRef.current = window.L.layerGroup().addTo(map);
+    routeLayerRef.current = window.L.layerGroup().addTo(map);
+    setTimeout(() => map.invalidateSize(), 150);
+    return () => { map.remove(); mapInstanceRef.current = null; };
+  }, [poiLoading]);
+
+  // Redraw markers whenever the visible category (and therefore relevant POI set) changes
+  useEffect(() => {
+    if (!markersLayerRef.current || !mapInstanceRef.current) return;
+    markersLayerRef.current.clearLayers();
+    const visible = category === 'provincia' ? [...poiCity, ...poiProvince] : poiCity;
+    visible.forEach((poi) => {
+      window.L.circleMarker([poi.lat, poi.lng], {
+        radius: 6,
+        fillColor: POI_CATEGORY_COLORS[poi.category] || '#12233F',
+        color: '#fff',
+        weight: 2,
+        fillOpacity: 0.9
+      }).bindTooltip(poi.name, { direction: 'top' }).addTo(markersLayerRef.current);
+    });
+    if (category === 'urbana' && mapInstanceRef.current) {
+      mapInstanceRef.current.setView([45.5398, 10.2199], 13);
+    } else if (category === 'provincia' && mapInstanceRef.current) {
+      mapInstanceRef.current.setView([45.55, 10.3], 10);
+    }
+  }, [category, poiCity, poiProvince]);
+
+  const clearRoute = () => { if (routeLayerRef.current) routeLayerRef.current.clearLayers(); };
+
+  const drawRoute = (geometry) => {
+    clearRoute();
+    if (!mapInstanceRef.current || !geometry) return;
+    const latlngs = geometry.map(([lng, lat]) => [lat, lng]);
+    const line = window.L.polyline(latlngs, { color: '#D6273C', weight: 5, opacity: 0.85 });
+    line.addTo(routeLayerRef.current);
+    mapInstanceRef.current.fitBounds(line.getBounds(), { padding: [30, 30] });
+  };
+
+  const calculateRoute = async (from, to, includeTowns) => {
+    setRouteLoading(true);
+    setRouteError('');
+    try {
+      const response = await axios.get(`${API}/route`, {
+        params: { from_lat: from.lat, from_lng: from.lng, to_lat: to.lat, to_lng: to.lng, include_towns: !!includeTowns }
+      });
+      setRouteData(response.data);
+      drawRoute(response.data.geometry);
+      return response.data;
+    } catch (error) {
+      setRouteError('Impossibile calcolare il percorso. Riprova tra qualche secondo.');
+      setRouteData(null);
+      return null;
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  const findPoi = (name) => poiCity.find(p => p.name === name) || poiProvince.find(p => p.name === name);
+
+  const handleGuidedSubmit = (e) => {
+    e.preventDefault();
+    const from = findPoi(fromPoi);
+    const to = category === 'provincia' && provinceCustomDest ? provinceCustomDest : findPoi(toPoi);
+    if (!from || !to) return;
+    setRevealed(false);
+    setLastScoreMsg('');
+    calculateRoute(from, to, category === 'provincia');
+  };
+
+  const drawRandomQuizPair = () => {
+    if (category === 'urbana') {
+      const shuffled = [...poiCity].sort(() => Math.random() - 0.5);
+      setQuizPair({ from: shuffled[0], to: shuffled[1] });
+    } else {
+      const from = poiCity[Math.floor(Math.random() * poiCity.length)];
+      const to = poiProvince[Math.floor(Math.random() * poiProvince.length)];
+      setQuizPair({ from, to });
+    }
+    setRevealed(false);
+    setRouteData(null);
+    setLastScoreMsg('');
+    clearRoute();
+  };
+
+  const revealQuizRoute = () => {
+    if (!quizPair) return;
+    setRevealed(true);
+    calculateRoute(quizPair.from, quizPair.to, category === 'provincia');
+  };
+
+  const searchProvincePlace = async () => {
+    if (provinceSearch.trim().length < 3) return;
+    try {
+      const response = await axios.get(`${API}/geocode-search`, { params: { q: provinceSearch } });
+      setProvinceSearchResults(response.data.results || []);
+    } catch (error) {
+      console.error('Geocode search error:', error);
+    }
+  };
+
+  const switchCategory = (cat) => {
+    setCategory(cat);
+    setSubMode('guided');
+    setFromPoi(''); setToPoi(''); setProvinceCustomDest(null);
+    setProvinceSearch(''); setProvinceSearchResults([]);
+    setRouteData(null); setRouteError(''); setRevealed(false); setLastScoreMsg('');
+    setQuizPair(null);
+    clearRoute();
+    if (cat === 'normativa') loadNormativaQuestion();
+  };
+
+  const loadNormativaQuestion = async () => {
+    setNormativaLoading(true);
+    setNormativaRevealed(false);
+    setLastScoreMsg('');
+    try {
+      const response = await axios.get(`${API}/oral/normativa-questions`, { params: { count: 1 } });
+      setNormativaQuestion(response.data[0]);
+    } catch (error) {
+      console.error('Error loading normativa question:', error);
+    } finally {
+      setNormativaLoading(false);
+    }
+  };
+
+  const submitScore = async (sessionType, score) => {
+    setScoreSaving(true);
+    try {
+      await axios.post(`${API}/oral/submit`, { session_type: sessionType, scores: [score] });
+      setLastScoreMsg(`Punteggio ${score}/10 salvato.`);
+      fetchOralStats();
+    } catch (error) {
+      console.error('Error submitting score:', error);
+    } finally {
+      setScoreSaving(false);
+    }
+  };
+
+  const formatDuration = (seconds) => `circa ${Math.round(seconds / 60)} min`;
+  const formatDistance = (meters) => meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${meters} m`;
+
+  // --- Simulazione (timed 2+2+1 sequence with cumulative 0-10 scoring) ---
+  const startSimulation = async () => {
+    if (poiCity.length < 2 || poiProvince.length < 1) return;
+    const shuffledCity = [...poiCity].sort(() => Math.random() - 0.5);
+    const steps = [
+      { type: 'urbana', from: shuffledCity[0], to: shuffledCity[1] },
+      { type: 'urbana', from: shuffledCity[2] || shuffledCity[0], to: shuffledCity[3] || shuffledCity[1] },
+      { type: 'provincia', from: poiCity[Math.floor(Math.random() * poiCity.length)], to: poiProvince[Math.floor(Math.random() * poiProvince.length)] },
+      { type: 'provincia', from: poiCity[Math.floor(Math.random() * poiCity.length)], to: poiProvince[Math.floor(Math.random() * poiProvince.length)] },
+      { type: 'normativa' },
+    ];
+    setSimSteps(steps);
+    setSimIndex(0);
+    setSimScores([]);
+    setSimDone(false);
+    setSimResult(null);
+    setSimRevealed(false);
+    setSimRouteData(null);
+    setSimTimeLeft(90);
+
+    if (steps[0].type !== 'normativa') {
+      await calcSimRoute(steps[0]);
+    } else {
+      await loadSimNormativa();
+    }
+  };
+
+  const calcSimRoute = async (step) => {
+    setRouteLoading(true);
+    try {
+      const response = await axios.get(`${API}/route`, {
+        params: { from_lat: step.from.lat, from_lng: step.from.lng, to_lat: step.to.lat, to_lng: step.to.lng, include_towns: step.type === 'provincia' }
+      });
+      setSimRouteData(response.data);
+    } catch (error) {
+      setSimRouteData(null);
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  const loadSimNormativa = async () => {
+    try {
+      const response = await axios.get(`${API}/oral/normativa-questions`, { params: { count: 1 } });
+      setSimRouteData({ question: response.data[0] });
+    } catch (error) {
+      setSimRouteData(null);
+    }
+  };
+
+  useEffect(() => {
+    if (simSteps && simTimeLeft !== null && simTimeLeft > 0 && !simRevealed) {
+      const t = setTimeout(() => setSimTimeLeft(simTimeLeft - 1), 1000);
+      return () => clearTimeout(t);
+    } else if (simSteps && simTimeLeft === 0 && !simRevealed) {
+      setSimRevealed(true);
+    }
+  }, [simTimeLeft, simSteps, simRevealed]);
+
+  const simReveal = () => setSimRevealed(true);
+
+  const simScoreAndNext = async (score) => {
+    const newScores = [...simScores, score];
+    setSimScores(newScores);
+
+    if (simIndex + 1 >= simSteps.length) {
+      const total = newScores.reduce((a, b) => a + b, 0);
+      try {
+        const response = await axios.post(`${API}/oral/submit`, { session_type: 'simulazione', scores: newScores });
+        setSimResult(response.data);
+      } catch (error) {
+        setSimResult({ total_score: total, passed: total >= 30 });
+      }
+      setSimDone(true);
+      fetchOralStats();
+      return;
+    }
+
+    const nextIndex = simIndex + 1;
+    setSimIndex(nextIndex);
+    setSimRevealed(false);
+    setSimRouteData(null);
+    setSimTimeLeft(90);
+    const nextStep = simSteps[nextIndex];
+    if (nextStep.type !== 'normativa') {
+      await calcSimRoute(nextStep);
+    } else {
+      await loadSimNormativa();
+    }
+  };
+
+  const exitSimulation = () => {
+    setSimSteps(null); setSimIndex(0); setSimScores([]); setSimDone(false); setSimResult(null);
+  };
+
+  const stepLabel = (type) => type === 'urbana' ? 'Cartografia Urbana' : type === 'provincia' ? 'Cartografia Provincia' : 'Normativa NCC';
+
+  return (
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-6">
+          <div className="flex justify-between items-start mb-4 flex-wrap gap-3">
+            <div>
+              <h1 className="font-display text-2xl font-semibold text-navy-900">🗺️ Prova Orale</h1>
+              <p className="text-navy-400 text-sm mt-1">Cartografia e normativa, come nell'esame reale</p>
+            </div>
+            <button
+              onClick={() => { window.location.hash = ''; window.location.reload(); }}
+              className="bg-paper text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-colors text-sm font-medium whitespace-nowrap"
+            >
+              ← Torna alla Dashboard
+            </button>
+          </div>
+
+          {oralStats && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="bg-paper rounded-lg p-3">
+                <p className="text-xs text-navy-400">Cartografia Urbana</p>
+                <p className="font-mono text-lg font-semibold text-navy-900">{oralStats.by_category.urbana.avg_score || 0}/10</p>
+              </div>
+              <div className="bg-paper rounded-lg p-3">
+                <p className="text-xs text-navy-400">Cartografia Provincia</p>
+                <p className="font-mono text-lg font-semibold text-navy-900">{oralStats.by_category.provincia.avg_score || 0}/10</p>
+              </div>
+              <div className="bg-paper rounded-lg p-3">
+                <p className="text-xs text-navy-400">Normativa</p>
+                <p className="font-mono text-lg font-semibold text-navy-900">{oralStats.by_category.normativa.avg_score || 0}/10</p>
+              </div>
+              <div className="bg-paper rounded-lg p-3">
+                <p className="text-xs text-navy-400">Simulazioni superate</p>
+                <p className="font-mono text-lg font-semibold text-navy-900">{oralStats.simulations_passed}/{oralStats.simulations_total}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            {[
+              ['urbana', 'Cartografia Urbana'],
+              ['provincia', 'Cartografia Provincia'],
+              ['normativa', 'Normativa NCC'],
+              ['simulazione', 'Simulazione Prova'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => key === 'simulazione' ? setCategory('simulazione') : switchCategory(key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${category === key ? 'bg-navy-900 text-white' : 'bg-paper text-navy-900 hover:bg-navy-50'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {poiLoading ? (
+          <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 text-center text-navy-400">
+            Caricamento punti...
+          </div>
+        ) : category === 'simulazione' ? (
+          <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6">
+            {!simSteps ? (
+              <div className="text-center py-8">
+                <h3 className="font-display text-xl font-semibold text-navy-900 mb-2">Simulazione Prova Orale</h3>
+                <p className="text-navy-400 text-sm mb-6 max-w-md mx-auto">
+                  5 domande in sequenza (2 cartografia urbana, 2 cartografia provincia, 1 normativa), con un timer per ciascuna. Punteggio 0-10 a domanda, soglia di superamento 30/50 — come la commissione reale.
+                </p>
+                <button
+                  onClick={startSimulation}
+                  disabled={poiCity.length < 4 || poiProvince.length < 2}
+                  className="bg-navy-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-navy-700 disabled:opacity-50 transition-colors"
+                >
+                  Inizia Simulazione
+                </button>
+                {(poiCity.length < 4 || poiProvince.length < 2) && (
+                  <p className="text-brick-500 text-xs mt-3">Servono almeno 4 punti città e 2 punti provincia caricati per iniziare.</p>
+                )}
+              </div>
+            ) : simDone ? (
+              <div className="text-center py-8">
+                <div className={`text-6xl mb-4 ${simResult?.passed ? 'text-leaf-500' : 'text-brick-500'}`}>
+                  {simResult?.passed ? '✅' : '❌'}
+                </div>
+                <h3 className="font-display text-2xl font-semibold text-navy-900 mb-2">
+                  {simResult?.passed ? 'Prova Superata' : 'Prova Non Superata'}
+                </h3>
+                <p className="font-mono text-3xl font-semibold text-navy-900 mb-1">{simResult?.total_score}/50</p>
+                <p className="text-navy-400 text-sm mb-6">Soglia di superamento: 30/50</p>
+                <button
+                  onClick={exitSimulation}
+                  className="bg-navy-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-navy-700 transition-colors"
+                >
+                  Nuova Simulazione
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-sm text-navy-400">
+                    Domanda <span className="font-mono text-navy-900">{simIndex + 1}</span> di <span className="font-mono text-navy-900">5</span> — {stepLabel(simSteps[simIndex].type)}
+                  </span>
+                  {simTimeLeft !== null && (
+                    <span className="font-mono text-lg font-semibold text-brick-500">⏰ {Math.floor(simTimeLeft / 60)}:{(simTimeLeft % 60).toString().padStart(2, '0')}</span>
+                  )}
+                </div>
+
+                {simSteps[simIndex].type !== 'normativa' ? (
+                  <div className="bg-paper rounded-lg p-4 mb-4">
+                    <p className="text-sm"><span className="text-navy-400">Partenza:</span> <span className="font-medium text-navy-900">{simSteps[simIndex].from.name}</span></p>
+                    <p className="text-sm mt-1"><span className="text-navy-400">Arrivo:</span> <span className="font-medium text-navy-900">{simSteps[simIndex].to.name}</span></p>
+                  </div>
+                ) : (
+                  <div className="bg-paper rounded-lg p-4 mb-4">
+                    <p className="text-sm font-medium text-navy-900">{simRouteData?.question?.question_text || 'Caricamento domanda...'}</p>
+                  </div>
+                )}
+
+                {!simRevealed ? (
+                  <button
+                    onClick={simReveal}
+                    className="bg-brick-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brick-600 transition-colors"
+                  >
+                    Rivela Risposta
+                  </button>
+                ) : (
+                  <div>
+                    {simSteps[simIndex].type !== 'normativa' ? (
+                      routeLoading ? <p className="text-navy-400 text-sm">Calcolo percorso...</p> : simRouteData && (
+                        <div className="mb-4">
+                          {simRouteData.compass_direction && (
+                            <p className="text-sm mb-2"><span className="text-navy-400">Direzione:</span> <span className="font-medium text-navy-900">{simRouteData.compass_direction}</span></p>
+                          )}
+                          {simRouteData.towns && simRouteData.towns.length > 0 && (
+                            <p className="text-sm mb-2"><span className="text-navy-400">Comuni attraversati:</span> <span className="font-medium text-navy-900">{simRouteData.towns.join(', ')}</span></p>
+                          )}
+                          <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(simRouteData.distance_m)} · {formatDuration(simRouteData.duration_s)}</p>
+                          <ol className="space-y-1 text-sm text-navy-900 list-decimal list-inside">
+                            {simRouteData.streets.map((s, i) => <li key={i}>{s}</li>)}
+                          </ol>
+                        </div>
+                      )
+                    ) : (
+                      simRouteData?.question && (
+                        <div className="mb-4 space-y-1">
+                          {simRouteData.question.options.map((opt, i) => (
+                            <p key={i} className={`text-sm ${i === simRouteData.question.correct_answer ? 'text-leaf-600 font-medium' : 'text-navy-400'}`}>
+                              {String.fromCharCode(65 + i)}) {opt} {i === simRouteData.question.correct_answer && '✓'}
+                            </p>
+                          ))}
+                        </div>
+                      )
+                    )}
+
+                    <AudioRecorder />
+
+                    <div className="mt-4">
+                      <p className="text-xs text-navy-400 mb-2">{RUBRIC_TEXT[simSteps[simIndex].type]}</p>
+                      <ScoreSelector onSubmit={simScoreAndNext} submitting={false} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {category !== 'normativa' && (
+              <div className="lg:col-span-2 bg-white rounded-xl shadow-md border border-navy-200 p-4">
+                <div ref={mapRef} style={{ height: '480px', borderRadius: '0.5rem' }}></div>
+              </div>
+            )}
+
+            <div className={category === 'normativa' ? 'lg:col-span-3 bg-white rounded-xl shadow-md border border-navy-200 p-6' : 'bg-white rounded-xl shadow-md border border-navy-200 p-6'}>
+              {(category === 'urbana' || category === 'provincia') && (
+                <>
+                  <div className="flex gap-2 mb-4">
+                    <button
+                      onClick={() => { setSubMode('guided'); setRouteData(null); setRevealed(false); clearRoute(); }}
+                      className={`px-3 py-1.5 rounded text-xs font-medium ${subMode === 'guided' ? 'bg-navy-900 text-white' : 'bg-paper text-navy-900'}`}
+                    >
+                      Percorso Guidato
+                    </button>
+                    <button
+                      onClick={() => { setSubMode('quiz'); setQuizPair(null); setRouteData(null); setRevealed(false); clearRoute(); }}
+                      className={`px-3 py-1.5 rounded text-xs font-medium ${subMode === 'quiz' ? 'bg-navy-900 text-white' : 'bg-paper text-navy-900'}`}
+                    >
+                      Autoverifica
+                    </button>
+                  </div>
+
+                  {subMode === 'guided' && (
+                    <form onSubmit={handleGuidedSubmit} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-navy-400 mb-1">Partenza (città)</label>
+                        <select value={fromPoi} onChange={(e) => setFromPoi(e.target.value)} className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600">
+                          <option value="">Seleziona...</option>
+                          {poiCity.map((poi) => <option key={poi.name} value={poi.name}>{poi.name}</option>)}
+                        </select>
+                      </div>
+
+                      {category === 'urbana' ? (
+                        <div>
+                          <label className="block text-xs font-medium text-navy-400 mb-1">Arrivo (città)</label>
+                          <select value={toPoi} onChange={(e) => setToPoi(e.target.value)} className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600">
+                            <option value="">Seleziona...</option>
+                            {poiCity.map((poi) => <option key={poi.name} value={poi.name}>{poi.name}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-xs font-medium text-navy-400 mb-1">Arrivo (provincia)</label>
+                          <select value={toPoi} onChange={(e) => { setToPoi(e.target.value); setProvinceCustomDest(null); }} className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-navy-600">
+                            <option value="">Scegli dalla lista...</option>
+                            {poiProvince.map((poi) => <option key={poi.name} value={poi.name}>{poi.name}</option>)}
+                          </select>
+                          <p className="text-xs text-navy-400 mb-1">— oppure cerca un indirizzo libero —</p>
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              value={provinceSearch}
+                              onChange={(e) => setProvinceSearch(e.target.value)}
+                              placeholder="es. Iseo, Chiari..."
+                              className="flex-1 bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
+                            />
+                            <button type="button" onClick={searchProvincePlace} className="bg-navy-100 text-navy-900 px-3 rounded-lg text-sm">🔍</button>
+                          </div>
+                          {provinceSearchResults.length > 0 && (
+                            <div className="mt-1 border border-navy-100 rounded-lg overflow-hidden">
+                              {provinceSearchResults.map((r, i) => (
+                                <button
+                                  type="button"
+                                  key={i}
+                                  onClick={() => { setProvinceCustomDest(r); setToPoi(''); setProvinceSearchResults([]); setProvinceSearch(r.name); }}
+                                  className="block w-full text-left px-3 py-2 text-xs hover:bg-paper border-b border-navy-50 last:border-0"
+                                >
+                                  {r.full_name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {provinceCustomDest && <p className="text-xs text-leaf-600 mt-1">Selezionato: {provinceCustomDest.name}</p>}
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={!fromPoi || (!toPoi && !provinceCustomDest) || routeLoading}
+                        className="w-full bg-navy-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 transition-colors"
+                      >
+                        {routeLoading ? 'Calcolo...' : 'Mostra Percorso'}
+                      </button>
+                    </form>
+                  )}
+
+                  {subMode === 'quiz' && (
+                    <div>
+                      <button
+                        onClick={drawRandomQuizPair}
+                        className="w-full bg-navy-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors mb-3"
+                      >
+                        🎲 Estrai due punti
+                      </button>
+                      {quizPair && (
+                        <div className="bg-paper rounded-lg p-3 mb-3">
+                          <p className="text-sm"><span className="text-navy-400">Partenza:</span> <span className="font-medium text-navy-900">{quizPair.from.name}</span></p>
+                          <p className="text-sm mt-1"><span className="text-navy-400">Arrivo:</span> <span className="font-medium text-navy-900">{quizPair.to.name}</span></p>
+                        </div>
+                      )}
+                      {quizPair && !revealed && (
+                        <button onClick={revealQuizRoute} disabled={routeLoading} className="w-full bg-brick-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-brick-600 disabled:opacity-50 transition-colors">
+                          {routeLoading ? 'Calcolo...' : 'Mostra il percorso'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {routeError && <p className="text-brick-500 text-sm mt-3">{routeError}</p>}
+
+                  {routeData && (subMode === 'guided' || revealed) && (
+                    <div className="mt-4 pt-4 border-t border-navy-50">
+                      {routeData.compass_direction && (
+                        <p className="text-sm mb-2"><span className="text-navy-400">Direzione:</span> <span className="font-medium text-navy-900">{routeData.compass_direction}</span></p>
+                      )}
+                      {routeData.towns && routeData.towns.length > 0 && (
+                        <p className="text-sm mb-2"><span className="text-navy-400">Comuni attraversati:</span> <span className="font-medium text-navy-900">{routeData.towns.join(', ')}</span></p>
+                      )}
+                      <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(routeData.distance_m)} · {formatDuration(routeData.duration_s)}</p>
+                      <ol className="space-y-1 text-sm text-navy-900 list-decimal list-inside mb-4">
+                        {routeData.streets.map((s, i) => <li key={i}>{s}</li>)}
+                      </ol>
+
+                      <AudioRecorder />
+
+                      <div className="mt-4">
+                        <p className="text-xs text-navy-400 mb-2">{RUBRIC_TEXT[category]}</p>
+                        <ScoreSelector onSubmit={(score) => submitScore(category, score)} submitting={scoreSaving} />
+                        {lastScoreMsg && <p className="text-leaf-600 text-xs mt-2">{lastScoreMsg}</p>}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {category === 'normativa' && (
+                <div>
+                  <h3 className="font-display text-lg font-semibold text-navy-900 mb-3">Normativa NCC — Domanda Orale</h3>
+                  {normativaLoading || !normativaQuestion ? (
+                    <p className="text-navy-400 text-sm">Caricamento...</p>
+                  ) : (
+                    <>
+                      <div className="bg-paper rounded-lg p-4 mb-4">
+                        <p className="font-medium text-navy-900">{normativaQuestion.question_text}</p>
+                      </div>
+
+                      {!normativaRevealed ? (
+                        <button onClick={() => setNormativaRevealed(true)} className="bg-brick-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brick-600 transition-colors">
+                          Rivela Risposta
+                        </button>
+                      ) : (
+                        <div>
+                          <div className="space-y-1 mb-4">
+                            {normativaQuestion.options.map((opt, i) => (
+                              <p key={i} className={`text-sm ${i === normativaQuestion.correct_answer ? 'text-leaf-600 font-medium' : 'text-navy-400'}`}>
+                                {String.fromCharCode(65 + i)}) {opt} {i === normativaQuestion.correct_answer && '✓'}
+                              </p>
+                            ))}
+                          </div>
+
+                          <AudioRecorder />
+
+                          <div className="mt-4">
+                            <p className="text-xs text-navy-400 mb-2">{RUBRIC_TEXT.normativa}</p>
+                            <ScoreSelector onSubmit={(score) => submitScore('normativa', score)} submitting={scoreSaving} />
+                            {lastScoreMsg && <p className="text-leaf-600 text-xs mt-2">{lastScoreMsg}</p>}
+                          </div>
+
+                          <button onClick={loadNormativaQuestion} className="mt-4 text-navy-600 hover:text-navy-900 text-sm font-medium">
+                            Prossima domanda →
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [currentView, setCurrentView] = useState('dashboard');
 
@@ -1683,6 +2599,8 @@ function App() {
       setCurrentView('quiz');
     } else if (hash === '#admin') {
       setCurrentView('admin');
+    } else if (hash === '#orale') {
+      setCurrentView('orale');
     }
   }, []);
 
@@ -1700,6 +2618,10 @@ function App() {
 
           if (currentView === 'admin' && user?.is_admin) {
             return <AdminPanel />;
+          }
+
+          if (currentView === 'orale') {
+            return <OralExamPrep />;
           }
 
           return <Dashboard />;
