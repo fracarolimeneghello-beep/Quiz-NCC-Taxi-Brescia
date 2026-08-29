@@ -114,6 +114,34 @@ class Question(BaseModel):
     question_text: str
     options: List[str]
     correct_answer: int  # Index of correct option (0-3)
+
+class POI(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    category: str = "altro"
+    lat: float
+    lng: float
+    poi_type: str  # "city" or "province"
+
+class OralAttempt(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    session_type: str  # "urbana" | "provincia" | "normativa" | "simulazione"
+    scores: List[int]  # self-assigned 0-10 per question
+    total_score: int
+    passed: Optional[bool] = None  # meaningful only for "simulazione" (30/50 threshold)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class OralAttemptSubmit(BaseModel):
+    session_type: Literal["urbana", "provincia", "normativa", "simulazione"]
+    scores: List[int]
+
+    @field_validator("scores")
+    @classmethod
+    def validate_scores(cls, v):
+        if not v or any(not isinstance(s, int) or not (0 <= s <= 10) for s in v):
+            raise ValueError("Ogni punteggio deve essere un intero tra 0 e 10")
+        return v
     
 class QuizAttempt(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -403,6 +431,21 @@ def validate_question_format(question_data: Dict[str, Any]) -> bool:
     
     return True
 
+def validate_poi_format(poi_data: Dict[str, Any]) -> bool:
+    """Validate that a POI entry has the correct format"""
+    if "name" not in poi_data or not isinstance(poi_data["name"], str) or not poi_data["name"].strip():
+        return False
+    if "lat" not in poi_data or "lng" not in poi_data:
+        return False
+    try:
+        lat = float(poi_data["lat"])
+        lng = float(poi_data["lng"])
+    except (TypeError, ValueError):
+        return False
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        return False
+    return True
+
 # Auth endpoints
 # Public self-registration is disabled: student accounts are provisioned
 # by the admin (see /admin/students below) so access can't be casually
@@ -546,6 +589,274 @@ async def reset_student_password(student_id: str, admin_user: User = Depends(get
         }}
     )
     return {"username": student["username"], "new_password": new_password}
+
+# POI ("points of interest") for the "Prova Orale" route-description study
+# tool — managed by the admin exactly like question banks: upload a JSON
+# file to replace the full list for "city" or "province".
+@api_router.get("/poi")
+async def list_poi(current_user: User = Depends(get_current_user)):
+    city = await db.poi.find({"poi_type": "city"}).to_list(500)
+    province = await db.poi.find({"poi_type": "province"}).to_list(500)
+    def clean(items):
+        return [{"id": p["id"], "name": p["name"], "category": p.get("category", "altro"),
+                  "lat": p["lat"], "lng": p["lng"]} for p in items]
+    return {"city": clean(city), "province": clean(province)}
+
+@api_router.get("/admin/poi-count")
+async def poi_count(admin_user: User = Depends(get_admin_user)):
+    city_count = await db.poi.count_documents({"poi_type": "city"})
+    province_count = await db.poi.count_documents({"poi_type": "province"})
+    return {"city": city_count, "province": province_count}
+
+@api_router.post("/admin/upload-poi")
+async def upload_poi(
+    poi_type: str = Form(...),
+    poi_file: UploadFile = File(...),
+    admin_user: User = Depends(get_admin_user),
+    _rl: None = Depends(rate_limit("upload", 20, 600))
+):
+    if poi_type not in ("city", "province"):
+        raise HTTPException(status_code=400, detail="poi_type deve essere 'city' o 'province'")
+
+    content = await poi_file.read()
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail=f"File troppo grande (massimo {MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MB)")
+
+    try:
+        poi_data = json.loads(content.decode('utf-8'))
+
+        if not isinstance(poi_data, list):
+            raise HTTPException(status_code=400, detail="Il file JSON deve contenere un elenco di punti")
+
+        if len(poi_data) > 500:
+            raise HTTPException(status_code=400, detail="Troppi punti nel file (massimo 500)")
+
+        for i, poi in enumerate(poi_data):
+            if not validate_poi_format(poi):
+                raise HTTPException(status_code=400,
+                                  detail=f"Punto {i+1} non valido. Campi richiesti: name, lat, lng")
+            if len(poi["name"]) > 150:
+                raise HTTPException(status_code=400, detail=f"Punto {i+1}: nome troppo lungo (massimo 150 caratteri)")
+
+        poi_to_insert = []
+        for p in poi_data:
+            poi = POI(
+                name=p["name"].strip(),
+                category=str(p.get("category", "altro")).strip() or "altro",
+                lat=float(p["lat"]),
+                lng=float(p["lng"]),
+                poi_type=poi_type
+            )
+            poi_to_insert.append(poi.dict())
+
+        if not poi_to_insert:
+            raise HTTPException(status_code=400, detail="Nessun punto valido trovato nel file")
+
+        async with await client.start_session() as session:
+            async with session.start_transaction():
+                await db.poi.delete_many({"poi_type": poi_type}, session=session)
+                result = await db.poi.insert_many(poi_to_insert, session=session)
+
+        return {
+            "message": f"Caricati {len(poi_to_insert)} punti ({poi_type})",
+            "poi_type": poi_type,
+            "count": len(poi_to_insert)
+        }
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="File JSON non valido")
+    except Exception:
+        logging.getLogger(__name__).exception("POI upload failed")
+        raise HTTPException(status_code=500, detail="Errore interno durante il caricamento")
+
+# Real-road route calculation for the "Prova Orale" study tool — proxied
+# server-side (rather than called directly from the browser) to avoid
+# CORS issues and to keep the public OSRM demo server from being hit
+# directly by unauthenticated traffic.
+def _bearing_to_compass(from_lat, from_lng, to_lat, to_lng):
+    """Simple great-circle bearing, translated to an 8-point compass label."""
+    import math
+    lat1, lat2 = math.radians(from_lat), math.radians(to_lat)
+    dlng = math.radians(to_lng - from_lng)
+    x = math.sin(dlng) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlng)
+    bearing = (math.degrees(math.atan2(x, y)) + 360) % 360
+    labels = ["Nord", "Nord-Est", "Est", "Sud-Est", "Sud", "Sud-Ovest", "Ovest", "Nord-Ovest"]
+    return labels[round(bearing / 45) % 8]
+
+async def _towns_along_route(geometry, http_client, max_samples=6):
+    """Best-effort: reverse-geocodes a handful of evenly-spaced points along
+    the route via OpenStreetMap Nominatim (free, rate-limited) to list the
+    comuni/località crossed. Returns [] silently on any failure — this is a
+    nice-to-have for the province route's self-check, not a hard requirement."""
+    if not geometry or len(geometry) < 2:
+        return []
+    try:
+        import asyncio
+        step = max(1, len(geometry) // max_samples)
+        sample_points = geometry[::step]
+        towns = []
+        for lng, lat in sample_points:
+            try:
+                resp = await http_client.get(
+                    "https://nominatim.openstreetmap.org/reverse",
+                    params={"lat": lat, "lon": lng, "format": "jsonv2", "zoom": 14},
+                    headers={"User-Agent": "QuizNCCBrescia/1.0 (scuola guida - uso didattico)"}
+                )
+                if resp.status_code == 200:
+                    addr = resp.json().get("address", {})
+                    town = addr.get("town") or addr.get("village") or addr.get("city") or addr.get("municipality")
+                    if town and (not towns or towns[-1] != town):
+                        towns.append(town)
+            except Exception:
+                pass
+            await asyncio.sleep(1.1)  # respect Nominatim's 1 req/sec usage policy
+        return towns
+    except Exception:
+        return []
+
+@api_router.get("/route")
+async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: float,
+                     include_towns: bool = False,
+                     current_user: User = Depends(get_current_user)):
+    osrm_url = f"https://router.project-osrm.org/route/v1/driving/{from_lng},{from_lat};{to_lng},{to_lat}"
+    params = {"overview": "full", "geometries": "geojson", "steps": "true"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as http_client:
+            response = await http_client.get(osrm_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        logging.getLogger(__name__).exception("Route calculation failed")
+        raise HTTPException(status_code=502, detail="Impossibile calcolare il percorso in questo momento")
+
+    if data.get("code") != "Ok" or not data.get("routes"):
+        raise HTTPException(status_code=404, detail="Percorso non trovato")
+
+    route = data["routes"][0]
+
+    # Collapse consecutive steps that share the same street name into one
+    # entry, so "Via Roma, Via Roma, Via Roma, Corso Italia" becomes just
+    # ["Via Roma", "Corso Italia"] — readable as a spoken route.
+    street_names = []
+    for leg in route["legs"]:
+        for step in leg["steps"]:
+            name = step.get("name", "").strip()
+            if name and (not street_names or street_names[-1] != name):
+                street_names.append(name)
+
+    geometry = route["geometry"]["coordinates"]
+    result = {
+        "distance_m": round(route["distance"]),
+        "duration_s": round(route["duration"]),
+        "streets": street_names,
+        "geometry": geometry,  # [[lng, lat], ...]
+        "compass_direction": _bearing_to_compass(from_lat, from_lng, to_lat, to_lng),
+    }
+
+    # Only computed on request (used for province routes, where this
+    # matters for the exam; skipped for quick city-route lookups to avoid
+    # the ~6 second Nominatim round-trip every time).
+    if include_towns:
+        async with httpx.AsyncClient(timeout=15) as http_client:
+            result["towns"] = await _towns_along_route(geometry, http_client)
+
+    return result
+
+# Oral exam self-assessment tracking — separate from the written quiz
+# stats, since it's a different skill. Scores are self-assigned by the
+# student (0-10 per question, per the real commission's scale) since we
+# can't objectively grade a spoken answer.
+@api_router.post("/oral/submit")
+async def submit_oral_attempt(data: OralAttemptSubmit, current_user: User = Depends(get_current_user)):
+    total = sum(data.scores)
+    passed = None
+    if data.session_type == "simulazione":
+        passed = total >= 30 and len(data.scores) == 5
+
+    attempt = OralAttempt(
+        user_id=current_user.id,
+        session_type=data.session_type,
+        scores=data.scores,
+        total_score=total,
+        passed=passed
+    )
+    await db.oral_attempts.insert_one(attempt.dict())
+    return {"total_score": total, "passed": passed}
+
+@api_router.get("/oral/stats")
+async def get_oral_stats(current_user: User = Depends(get_current_user)):
+    attempts = await db.oral_attempts.find({"user_id": current_user.id}).to_list(1000)
+
+    by_category = {}
+    for t in ("urbana", "provincia", "normativa"):
+        relevant = [a for a in attempts if a["session_type"] == t]
+        if relevant:
+            avg = sum(a["total_score"] / len(a["scores"]) for a in relevant) / len(relevant)
+            by_category[t] = {"sessions": len(relevant), "avg_score": round(avg, 1)}
+        else:
+            by_category[t] = {"sessions": 0, "avg_score": 0}
+
+    sim_attempts = sorted(
+        [a for a in attempts if a["session_type"] == "simulazione"],
+        key=lambda a: a["created_at"]
+    )
+    return {
+        "by_category": by_category,
+        "simulations_total": len(sim_attempts),
+        "simulations_passed": sum(1 for a in sim_attempts if a.get("passed")),
+        "last_simulation_score": sim_attempts[-1]["total_score"] if sim_attempts else None
+    }
+
+# Reuses the written "Normativa" question bank for oral-style drilling
+# (question shown, options hidden, student answers aloud, then reveals).
+# No quiz_attempt is created — this is ungraded self-practice, tracked
+# separately by the frontend as part of oral stats.
+@api_router.get("/oral/normativa-questions")
+async def oral_normativa_questions(count: int = 1, current_user: User = Depends(get_current_user)):
+    count = max(1, min(count, 10))
+    normativa_subjects = [s for s in FIXED_SUBJECTS if "normativa" in s.lower()]
+    questions = await db.questions.find({"subject": {"$in": normativa_subjects}}).to_list(1000)
+    if not questions:
+        raise HTTPException(status_code=404, detail="Nessuna domanda di normativa disponibile")
+    picked = random.sample(questions, min(count, len(questions)))
+    return [
+        {"id": q["id"], "question_text": q["question_text"], "options": q["options"], "correct_answer": q["correct_answer"]}
+        for q in picked
+    ]
+
+# Free-text place search (for provincial destinations not on the curated
+# list), proxied through Nominatim — same free/rate-limited service as above.
+@api_router.get("/geocode-search")
+async def geocode_search(q: str, current_user: User = Depends(get_current_user),
+                          _rl: None = Depends(rate_limit("geocode", 20, 60))):
+    if len(q.strip()) < 3:
+        return {"results": []}
+    try:
+        async with httpx.AsyncClient(timeout=10) as http_client:
+            resp = await http_client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={
+                    "q": f"{q}, provincia di Brescia, Italia",
+                    "format": "jsonv2",
+                    "limit": 6,
+                    "countrycodes": "it"
+                },
+                headers={"User-Agent": "QuizNCCBrescia/1.0 (scuola guida - uso didattico)"}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        logging.getLogger(__name__).exception("Geocode search failed")
+        return {"results": []}
+
+    return {"results": [
+        {"name": item.get("display_name", "").split(",")[0], "full_name": item.get("display_name"),
+         "lat": float(item["lat"]), "lng": float(item["lon"])}
+        for item in data
+    ]}
 
 # Notices ("what's new" / news feed) — a mix of things the admin writes by
 # hand (e.g. app updates) and automatic alerts (e.g. a new exam session
