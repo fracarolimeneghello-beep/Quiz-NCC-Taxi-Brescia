@@ -6,7 +6,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 // If any request comes back unauthenticated (session expired, password
-// changed elsewhere, or — most commonly here — someone else logged into
+// changed elsewhere, or â€” most commonly here â€” someone else logged into
 // this same account from another device), clear the stale session and
 // send the person back to the login screen with a clear explanation,
 // instead of leaving them stuck on a page that silently stops working.
@@ -84,7 +84,7 @@ const AuthProvider = ({ children }) => {
         new_password: newPassword
       });
       // Changing the password invalidates the previous session token on the
-      // server, which issues a fresh one for this browser tab — save it,
+      // server, which issues a fresh one for this browser tab â€” save it,
       // or the very next request would get rejected as unauthenticated.
       const newToken = response.data.token;
       if (newToken) {
@@ -202,7 +202,7 @@ const AdminPanel = () => {
   };
 
   const revokeStudent = async (studentId, username) => {
-    if (!window.confirm(`Revocare l'accesso di "${username}"? L'account verrà eliminato definitivamente.`)) return;
+    if (!window.confirm(`Revocare l'accesso di "${username}"? L'account verrÃ  eliminato definitivamente.`)) return;
     try {
       await axios.delete(`${API}/admin/students/${studentId}`);
       fetchStudents();
@@ -215,14 +215,14 @@ const AdminPanel = () => {
     if (!window.confirm(`Generare una nuova password temporanea per "${username}"?`)) return;
     try {
       const response = await axios.post(`${API}/admin/students/${studentId}/reset-password`);
-      window.alert(`Nuova password per ${response.data.username}:\n\n${response.data.new_password}\n\nComunicala allo studente. Non verrà mostrata di nuovo.`);
+      window.alert(`Nuova password per ${response.data.username}:\n\n${response.data.new_password}\n\nComunicala allo studente. Non verrÃ  mostrata di nuovo.`);
     } catch (error) {
       console.error('Error resetting password:', error);
     }
   };
 
   const formatDate = (iso) => {
-    if (!iso) return '—';
+    if (!iso) return 'â€”';
     return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
@@ -291,7 +291,7 @@ const AdminPanel = () => {
   };
 
   const resetToSampleQuestions = async () => {
-    if (!confirm('Sei sicuro di voler ripristinare le domande di esempio? Questo cancellerà tutte le domande caricate.')) {
+    if (!confirm('Sei sicuro di voler ripristinare le domande di esempio? Questo cancellerÃ  tutte le domande caricate.')) {
       return;
     }
 
@@ -317,7 +317,7 @@ const AdminPanel = () => {
       response.data.preview.forEach((q, i) => {
         previewText += `${i + 1}. ${q.question_text}\n`;
         q.options.forEach((option, j) => {
-          const marker = j === q.correct_answer ? '✓' : ' ';
+          const marker = j === q.correct_answer ? 'âœ“' : ' ';
           previewText += `   ${String.fromCharCode(65 + j)}) ${option} ${marker}\n`;
         });
         previewText += '\n';
@@ -338,7 +338,7 @@ const AdminPanel = () => {
       <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
         <div className="flex justify-between items-start mb-2">
           <h1 className="font-display text-2xl font-semibold text-navy-900">
-            🔧 Pannello di Amministrazione
+            ðŸ”§ Pannello di Amministrazione
           </h1>
           <button
             onClick={() => {
@@ -347,7 +347,7 @@ const AdminPanel = () => {
             }}
             className="bg-paper text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-colors text-sm font-medium whitespace-nowrap"
           >
-            ← Torna alla Dashboard
+            â† Torna alla Dashboard
           </button>
         </div>
         <p className="text-navy-400 mb-6">
@@ -356,7 +356,7 @@ const AdminPanel = () => {
 
         {/* File Upload Instructions */}
         <div className="bg-navy-50 p-4 rounded-lg mb-6">
-          <h3 className="font-semibold text-navy-900 mb-2">📋 Formato File JSON Richiesto:</h3>
+          <h3 className="font-semibold text-navy-900 mb-2">ðŸ“‹ Formato File JSON Richiesto:</h3>
           <pre className="text-sm text-navy-700 bg-white p-3 rounded overflow-x-auto border border-navy-100">
 {`[
   {
@@ -367,9 +367,9 @@ const AdminPanel = () => {
 ]`}
           </pre>
           <p className="text-sm text-navy-600 mt-2">
-            • <code>correct_answer</code> è l'indice della risposta corretta (0-3)<br/>
-            • Ogni file può contenere qualsiasi numero di domande<br/>
-            • Le domande esistenti per l'argomento saranno sostituite
+            â€¢ <code>correct_answer</code> Ã¨ l'indice della risposta corretta (0-3)<br/>
+            â€¢ Ogni file puÃ² contenere qualsiasi numero di domande<br/>
+            â€¢ Le domande esistenti per l'argomento saranno sostituite
           </p>
         </div>
 
@@ -386,7 +386,7 @@ const AdminPanel = () => {
                 disabled={!questionCounts[subject]}
                 className="text-sm text-navy-600 hover:text-navy-900 disabled:text-navy-100"
               >
-                👁 Anteprima
+                ðŸ‘ Anteprima
               </button>
             </div>
           ))}
@@ -394,9 +394,9 @@ const AdminPanel = () => {
 
         {/* Student Accounts */}
         <div className="border border-navy-200 rounded-lg p-6 mb-8">
-          <h3 className="text-lg font-semibold text-navy-900 mb-1">🎓 Studenti</h3>
+          <h3 className="text-lg font-semibold text-navy-900 mb-1">ðŸŽ“ Studenti</h3>
           <p className="text-navy-400 text-sm mb-4">
-            Crea un account per ogni studente. La registrazione pubblica è disattivata: l'accesso arriva solo da qui.
+            Crea un account per ogni studente. La registrazione pubblica Ã¨ disattivata: l'accesso arriva solo da qui.
           </p>
 
           <form onSubmit={createStudent} className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
@@ -508,9 +508,9 @@ const AdminPanel = () => {
 
         {/* POI Management (Prova Orale) */}
         <div className="border border-navy-200 rounded-lg p-6 mb-8">
-          <h3 className="text-lg font-semibold text-navy-900 mb-1">🗺️ Punti Prova Orale</h3>
+          <h3 className="text-lg font-semibold text-navy-900 mb-1">ðŸ—ºï¸ Punti Prova Orale</h3>
           <p className="text-navy-400 text-sm mb-4">
-            Carica i punti (JSON) usati nella Prova Orale — città e provincia. Ogni caricamento sostituisce l'elenco precedente per quella categoria.
+            Carica i punti (JSON) usati nella Prova Orale â€” cittÃ  e provincia. Ogni caricamento sostituisce l'elenco precedente per quella categoria.
           </p>
 
           <div className="bg-navy-50 p-4 rounded-lg mb-4">
@@ -522,7 +522,7 @@ const AdminPanel = () => {
           </div>
 
           {[
-            { key: 'city', label: 'Punti Città (attualmente: ' + poiCounts.city + ')' },
+            { key: 'city', label: 'Punti CittÃ  (attualmente: ' + poiCounts.city + ')' },
             { key: 'province', label: 'Punti Provincia (attualmente: ' + poiCounts.province + ')' },
           ].map(({ key, label }) => (
             <div key={key} className="mb-4">
@@ -560,7 +560,7 @@ const AdminPanel = () => {
           {subjects.map((subject) => (
             <div key={subject} className="border border-navy-200 rounded-lg p-6">
               <h3 className="text-lg font-semibold text-navy-900 mb-4">
-                📚 {subject}
+                ðŸ“š {subject}
               </h3>
 
               <div className="flex flex-col sm:flex-row gap-4 items-start">
@@ -604,10 +604,10 @@ const AdminPanel = () => {
         {/* Reset to Sample Questions */}
         <div className="mt-8 p-6 bg-brick-50 border border-brick-500/20 rounded-lg">
           <h3 className="text-lg font-semibold text-brick-600 mb-2">
-            🔄 Ripristina Domande di Esempio
+            ðŸ”„ Ripristina Domande di Esempio
           </h3>
           <p className="text-brick-600 mb-4 opacity-90">
-            Questo ripristinerà le domande di esempio originali per tutti gli argomenti. 
+            Questo ripristinerÃ  le domande di esempio originali per tutti gli argomenti. 
             Tutte le domande caricate saranno eliminate.
           </p>
           <button
@@ -944,7 +944,7 @@ const ChangePasswordModal = ({ onClose }) => {
   );
 };
 
-// Speedometer-style gauge, used for the pass-rate stat — a nod to the
+// Speedometer-style gauge, used for the pass-rate stat â€” a nod to the
 // dashboard of the vehicles our candidates will be driving professionally.
 const SuccessGauge = ({ percentage }) => {
   const radius = 80;
@@ -1123,7 +1123,7 @@ const Dashboard = () => {
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-navy-100 text-sm hidden sm:inline">
-                Benvenuto, {user?.username} {user?.is_admin && '👑'}
+                Benvenuto, {user?.username} {user?.is_admin && 'ðŸ‘‘'}
               </span>
               <button
                 onClick={() => setShowChangePassword(true)}
@@ -1151,7 +1151,7 @@ const Dashboard = () => {
         {(notices.length > 0 || user?.is_admin) && (
           <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="font-display text-xl font-semibold text-navy-900">📢 Notizie</h2>
+              <h2 className="font-display text-xl font-semibold text-navy-900">ðŸ“¢ Notizie</h2>
               {user?.is_admin && (
                 <button
                   onClick={() => setShowNewNotice(!showNewNotice)}
@@ -1195,13 +1195,13 @@ const Dashboard = () => {
                     <div className="flex justify-between items-start gap-2">
                       <div>
                         <div className="flex items-center gap-2">
-                          {n.source === 'auto-bando' && <span className="text-xs">🏛️</span>}
+                          {n.source === 'auto-bando' && <span className="text-xs">ðŸ›ï¸</span>}
                           <h4 className="font-medium text-navy-900 text-sm">{n.title}</h4>
                         </div>
                         <p className="text-navy-600 text-sm mt-1">{n.body}</p>
                         {n.url && (
                           <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-navy-600 hover:text-navy-900 text-xs font-medium underline mt-1 inline-block">
-                            Vedi sul sito della Provincia →
+                            Vedi sul sito della Provincia â†’
                           </a>
                         )}
                         <p className="text-navy-400 text-xs mt-1 font-mono">{formatNoticeDate(n.created_at)}</p>
@@ -1227,7 +1227,7 @@ const Dashboard = () => {
           <div className="bg-navy-700 text-white p-6 rounded-xl mb-8">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="font-display text-xl font-semibold mb-1">👑 Pannello Amministratore</h2>
+                <h2 className="font-display text-xl font-semibold mb-1">ðŸ‘‘ Pannello Amministratore</h2>
                 <p className="text-navy-100 text-sm">Carica e gestisci le domande dell'esame</p>
               </div>
               <button
@@ -1237,7 +1237,7 @@ const Dashboard = () => {
                 }}
                 className="bg-white text-navy-900 px-6 py-3 rounded-lg font-medium hover:bg-navy-50 transition-colors"
               >
-                Gestisci Domande 🔧
+                Gestisci Domande ðŸ”§
               </button>
             </div>
           </div>
@@ -1262,7 +1262,7 @@ const Dashboard = () => {
         {/* Oral Stats Summary */}
         {oralStats && (oralStats.simulations_total > 0 || oralStats.by_category.urbana.sessions > 0 || oralStats.by_category.provincia.sessions > 0 || oralStats.by_category.normativa.sessions > 0) && (
           <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-8">
-            <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">🗺️ Prova Orale — Andamento</h2>
+            <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">ðŸ—ºï¸ Prova Orale â€” Andamento</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-paper rounded-lg p-4">
                 <p className="text-xs text-navy-400 uppercase tracking-wide mb-1">Cartografia Urbana</p>
@@ -1317,48 +1317,48 @@ const Dashboard = () => {
         </div>
 
         {/* Quiz Modes */}
-        <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">📝 Prova Quiz</h2>
+        <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">ðŸ“ Prova Quiz</h2>
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <QuizModeCard
             title="Prova Libera"
             description="Tutte le domande di un singolo argomento"
-            icon="📚"
+            icon="ðŸ“š"
             type="free"
           />
           <QuizModeCard
             title="Prova per Argomento"
             description="5 domande casuali da un argomento"
-            icon="🎯"
+            icon="ðŸŽ¯"
             type="by_subject"
           />
           <QuizModeCard
             title="Simulazione Finale"
             description="5 domande per ogni argomento - 30 minuti"
-            icon="⏰"
+            icon="â°"
             type="final_simulation"
           />
           <QuizModeCard
             title="Ripassa Errori"
             description="Solo le domande che hai sbagliato finora"
-            icon="🔁"
+            icon="ðŸ”"
             type="review_errors"
             mistakesCount={stats?.mistakes_count || 0}
           />
         </div>
 
         {/* Oral Exam Entry */}
-        <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">🗺️ Prova Orale</h2>
+        <h2 className="font-display text-xl font-semibold text-navy-900 mb-4">ðŸ—ºï¸ Prova Orale</h2>
         <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6">
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
               <h3 className="font-medium text-navy-900 mb-1">Cartografia e Normativa</h3>
-              <p className="text-navy-400 text-sm">Percorsi in città, percorsi in provincia, normativa orale, e simulazione completa a punteggio</p>
+              <p className="text-navy-400 text-sm">Percorsi in cittÃ , percorsi in provincia, normativa orale, e simulazione completa a punteggio</p>
             </div>
             <button
               onClick={() => { window.location.hash = '#orale'; window.location.reload(); }}
               className="bg-navy-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-navy-700 transition-colors whitespace-nowrap"
             >
-              Inizia →
+              Inizia â†’
             </button>
           </div>
         </div>
@@ -1555,7 +1555,7 @@ const Quiz = () => {
     } catch (error) {
       console.error('Error submitting quiz:', error);
       // A 409 means this attempt was already submitted (e.g. from another
-      // tab, or a retried request) — treat it as done rather than stuck.
+      // tab, or a retried request) â€” treat it as done rather than stuck.
       if (error.response?.status === 409) {
         setSubmitted(true);
       }
@@ -1585,7 +1585,7 @@ const Quiz = () => {
         <div className="max-w-2xl w-full bg-white rounded-2xl shadow-lg p-8">
           <div className="text-center mb-8">
             <div className={`text-6xl mb-4 ${results.passed ? 'text-leaf-500' : 'text-brick-500'}`}>
-              {results.passed ? '✅' : '❌'}
+              {results.passed ? 'âœ…' : 'âŒ'}
             </div>
             <h2 className="font-display text-3xl font-semibold text-navy-900 mb-2">
               {results.passed ? 'Esame Superato!' : 'Esame Non Superato'}
@@ -1595,7 +1595,7 @@ const Quiz = () => {
             </p>
             {results.expired && (
               <p className="text-brick-500 text-sm mt-2 font-medium">
-                Il tempo a disposizione (30 minuti) è scaduto prima della consegna: l'esame è considerato non superato.
+                Il tempo a disposizione (30 minuti) Ã¨ scaduto prima della consegna: l'esame Ã¨ considerato non superato.
               </p>
             )}
           </div>
@@ -1634,7 +1634,7 @@ const Quiz = () => {
                     <div key={question.id} className="p-4 bg-paper rounded-lg border border-navy-50">
                       <div className="flex items-start gap-2 mb-3">
                         <span className={`text-xl ${isCorrect ? 'text-leaf-500' : 'text-brick-500'}`}>
-                          {isCorrect ? '✓' : '✗'}
+                          {isCorrect ? 'âœ“' : 'âœ—'}
                         </span>
                         <p className="font-medium text-navy-900">{question.question_text}</p>
                       </div>
@@ -1649,8 +1649,8 @@ const Quiz = () => {
                           return (
                             <div key={optIndex} className={`text-sm ${style}`}>
                               {String.fromCharCode(65 + optIndex)}) {option}
-                              {optIndex === correctAnswer && ' ✓ (risposta corretta)'}
-                              {optIndex === userAnswer && !isCorrect && ' ✗ (la tua risposta)'}
+                              {optIndex === correctAnswer && ' âœ“ (risposta corretta)'}
+                              {optIndex === userAnswer && !isCorrect && ' âœ— (la tua risposta)'}
                             </div>
                           );
                         })}
@@ -1691,7 +1691,7 @@ const Quiz = () => {
             </h1>
             {timeLeft && (
               <div className="font-mono text-xl font-semibold text-brick-500">
-                ⏰ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                â° {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
               </div>
             )}
           </div>
@@ -1753,8 +1753,8 @@ const Quiz = () => {
                   className={`w-full p-4 text-left rounded-lg border transition-colors ${optionStyle} ${hasAnswered ? 'cursor-default' : ''}`}
                 >
                   <span className="font-mono font-medium">{String.fromCharCode(65 + index)})</span> {option}
-                  {isFreeMode && hasAnswered && isCorrectOption && ' ✓'}
-                  {isFreeMode && hasAnswered && isSelected && !isCorrectOption && ' ✗'}
+                  {isFreeMode && hasAnswered && isCorrectOption && ' âœ“'}
+                  {isFreeMode && hasAnswered && isSelected && !isCorrectOption && ' âœ—'}
                 </button>
               );
             })}
@@ -1768,7 +1768,7 @@ const Quiz = () => {
             disabled={currentQuestionIndex === 0}
             className="bg-navy-100 text-navy-900 px-6 py-3 rounded-lg hover:bg-navy-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            ← Precedente
+            â† Precedente
           </button>
 
           <div className="flex gap-3">
@@ -1797,7 +1797,7 @@ const Quiz = () => {
                 onClick={() => setCurrentQuestionIndex(Math.min(quizData.questions.length - 1, currentQuestionIndex + 1))}
                 className="bg-navy-900 text-white px-6 py-3 rounded-lg hover:bg-navy-700 transition-colors"
               >
-                Successiva →
+                Successiva â†’
               </button>
             )}
           </div>
@@ -1827,7 +1827,7 @@ const POI_CATEGORY_COLORS = {
   altro: '#12233F',
 };
 
-// Local-only microphone recording for self-review — nothing is uploaded or
+// Local-only microphone recording for self-review â€” nothing is uploaded or
 // saved anywhere; the clip lives only in the browser tab and disappears
 // when the component unmounts or a new recording starts.
 const AudioRecorder = () => {
@@ -1870,15 +1870,15 @@ const AudioRecorder = () => {
 
   return (
     <div className="bg-paper rounded-lg p-3">
-      <p className="text-xs text-navy-400 mb-2">🎙️ Facoltativo: registra la tua risposta a voce e riascoltala prima di darti un voto</p>
+      <p className="text-xs text-navy-400 mb-2">ðŸŽ™ï¸ Facoltativo: registra la tua risposta a voce e riascoltala prima di darti un voto</p>
       <div className="flex items-center gap-2 flex-wrap">
         {!recording ? (
           <button type="button" onClick={startRecording} className="bg-navy-900 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-navy-700 transition-colors">
-            ● Registra
+            â— Registra
           </button>
         ) : (
           <button type="button" onClick={stopRecording} className="bg-brick-500 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-brick-600 transition-colors">
-            ■ Stop
+            â–  Stop
           </button>
         )}
         {audioUrl && <audio controls src={audioUrl} style={{ height: '32px', maxWidth: '220px' }} />}
@@ -1918,9 +1918,9 @@ const ScoreSelector = ({ onSubmit, submitting }) => {
 };
 
 const RUBRIC_TEXT = {
-  urbana: '8-10: hai nominato tutte le vie principali nell\'ordine corretto · 5-7: 1-2 errori o ordine impreciso · 0-4: risposta incompleta o molto sbagliata',
-  provincia: '8-10: direzione corretta, comuni principali citati, conosci un\'alternativa · 5-7: direzione corretta ma comuni imprecisi o nessuna alternativa · 0-4: direzione sbagliata o risposta molto incompleta',
-  normativa: '8-10: risposta completa e corretta · 5-7: risposta parziale o imprecisa · 0-4: risposta sbagliata o assente',
+  urbana: '8-10: hai nominato tutte le vie principali nell\'ordine corretto Â· 5-7: 1-2 errori o ordine impreciso Â· 0-4: risposta incompleta o molto sbagliata',
+  provincia: '8-10: direzione corretta, comuni principali citati, conosci un\'alternativa Â· 5-7: direzione corretta ma comuni imprecisi o nessuna alternativa Â· 0-4: direzione sbagliata o risposta molto incompleta',
+  normativa: '8-10: risposta completa e corretta Â· 5-7: risposta parziale o imprecisa Â· 0-4: risposta sbagliata o assente',
 };
 
 const OralExamPrep = () => {
@@ -1992,19 +1992,45 @@ const OralExamPrep = () => {
     }
   };
 
-  // Map init (once POIs are loaded)
+  // Map init (once POIs are loaded). Leaflet is loaded via a <script> tag
+  // in index.html â€” on a slow connection it might not be ready the instant
+  // this effect first runs, so we retry briefly instead of giving up on
+  // the first check (which previously could leave a silently blank map).
+  const [mapLoadFailed, setMapLoadFailed] = useState(false);
+
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current || !window.L || poiLoading) return;
-    const map = window.L.map(mapRef.current).setView([45.55, 10.3], 10);
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19
-    }).addTo(map);
-    mapInstanceRef.current = map;
-    markersLayerRef.current = window.L.layerGroup().addTo(map);
-    routeLayerRef.current = window.L.layerGroup().addTo(map);
-    setTimeout(() => map.invalidateSize(), 150);
-    return () => { map.remove(); mapInstanceRef.current = null; };
+    if (poiLoading || mapInstanceRef.current) return;
+
+    let attempts = 0;
+    const tryInit = () => {
+      if (mapInstanceRef.current) return;
+      if (!mapRef.current || !window.L) {
+        attempts += 1;
+        if (attempts > 40) { // ~10 seconds of retrying
+          setMapLoadFailed(true);
+          return;
+        }
+        setTimeout(tryInit, 250);
+        return;
+      }
+      const map = window.L.map(mapRef.current).setView([45.55, 10.3], 10);
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+      }).addTo(map);
+      mapInstanceRef.current = map;
+      markersLayerRef.current = window.L.layerGroup().addTo(map);
+      routeLayerRef.current = window.L.layerGroup().addTo(map);
+      setTimeout(() => map.invalidateSize(), 150);
+    };
+    tryInit();
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
   }, [poiLoading]);
 
   // Redraw markers whenever the visible category (and therefore relevant POI set) changes
@@ -2256,14 +2282,14 @@ const OralExamPrep = () => {
         <div className="bg-white rounded-xl shadow-md border border-navy-200 p-6 mb-6">
           <div className="flex justify-between items-start mb-4 flex-wrap gap-3">
             <div>
-              <h1 className="font-display text-2xl font-semibold text-navy-900">🗺️ Prova Orale</h1>
+              <h1 className="font-display text-2xl font-semibold text-navy-900">ðŸ—ºï¸ Prova Orale</h1>
               <p className="text-navy-400 text-sm mt-1">Cartografia e normativa, come nell'esame reale</p>
             </div>
             <button
               onClick={() => { window.location.hash = ''; window.location.reload(); }}
               className="bg-paper text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-colors text-sm font-medium whitespace-nowrap"
             >
-              ← Torna alla Dashboard
+              â† Torna alla Dashboard
             </button>
           </div>
 
@@ -2316,7 +2342,7 @@ const OralExamPrep = () => {
               <div className="text-center py-8">
                 <h3 className="font-display text-xl font-semibold text-navy-900 mb-2">Simulazione Prova Orale</h3>
                 <p className="text-navy-400 text-sm mb-6 max-w-md mx-auto">
-                  5 domande in sequenza (2 cartografia urbana, 2 cartografia provincia, 1 normativa), con un timer per ciascuna. Punteggio 0-10 a domanda, soglia di superamento 30/50 — come la commissione reale.
+                  5 domande in sequenza (2 cartografia urbana, 2 cartografia provincia, 1 normativa), con un timer per ciascuna. Punteggio 0-10 a domanda, soglia di superamento 30/50 â€” come la commissione reale.
                 </p>
                 <button
                   onClick={startSimulation}
@@ -2326,13 +2352,13 @@ const OralExamPrep = () => {
                   Inizia Simulazione
                 </button>
                 {(poiCity.length < 4 || poiProvince.length < 2) && (
-                  <p className="text-brick-500 text-xs mt-3">Servono almeno 4 punti città e 2 punti provincia caricati per iniziare.</p>
+                  <p className="text-brick-500 text-xs mt-3">Servono almeno 4 punti cittÃ  e 2 punti provincia caricati per iniziare.</p>
                 )}
               </div>
             ) : simDone ? (
               <div className="text-center py-8">
                 <div className={`text-6xl mb-4 ${simResult?.passed ? 'text-leaf-500' : 'text-brick-500'}`}>
-                  {simResult?.passed ? '✅' : '❌'}
+                  {simResult?.passed ? 'âœ…' : 'âŒ'}
                 </div>
                 <h3 className="font-display text-2xl font-semibold text-navy-900 mb-2">
                   {simResult?.passed ? 'Prova Superata' : 'Prova Non Superata'}
@@ -2350,10 +2376,10 @@ const OralExamPrep = () => {
               <div>
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-sm text-navy-400">
-                    Domanda <span className="font-mono text-navy-900">{simIndex + 1}</span> di <span className="font-mono text-navy-900">5</span> — {stepLabel(simSteps[simIndex].type)}
+                    Domanda <span className="font-mono text-navy-900">{simIndex + 1}</span> di <span className="font-mono text-navy-900">5</span> â€” {stepLabel(simSteps[simIndex].type)}
                   </span>
                   {simTimeLeft !== null && (
-                    <span className="font-mono text-lg font-semibold text-brick-500">⏰ {Math.floor(simTimeLeft / 60)}:{(simTimeLeft % 60).toString().padStart(2, '0')}</span>
+                    <span className="font-mono text-lg font-semibold text-brick-500">â° {Math.floor(simTimeLeft / 60)}:{(simTimeLeft % 60).toString().padStart(2, '0')}</span>
                   )}
                 </div>
 
@@ -2386,7 +2412,7 @@ const OralExamPrep = () => {
                           {simRouteData.towns && simRouteData.towns.length > 0 && (
                             <p className="text-sm mb-2"><span className="text-navy-400">Comuni attraversati:</span> <span className="font-medium text-navy-900">{simRouteData.towns.join(', ')}</span></p>
                           )}
-                          <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(simRouteData.distance_m)} · {formatDuration(simRouteData.duration_s)}</p>
+                          <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(simRouteData.distance_m)} Â· {formatDuration(simRouteData.duration_s)}</p>
                           <ol className="space-y-1.5 text-sm text-navy-900 list-decimal list-inside">
                             {(simRouteData.instructions || simRouteData.streets.map(s => ({ text: `Prosegui su ${s}` }))).map((instr, i) => (
                               <li key={i}>{instr.text}{instr.distance_m ? ` (${formatDistance(instr.distance_m)})` : ''}</li>
@@ -2399,7 +2425,7 @@ const OralExamPrep = () => {
                         <div className="mb-4 space-y-1">
                           {simRouteData.question.options.map((opt, i) => (
                             <p key={i} className={`text-sm ${i === simRouteData.question.correct_answer ? 'text-leaf-600 font-medium' : 'text-navy-400'}`}>
-                              {String.fromCharCode(65 + i)}) {opt} {i === simRouteData.question.correct_answer && '✓'}
+                              {String.fromCharCode(65 + i)}) {opt} {i === simRouteData.question.correct_answer && 'âœ“'}
                             </p>
                           ))}
                         </div>
@@ -2421,7 +2447,15 @@ const OralExamPrep = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {category !== 'normativa' && (
               <div className="lg:col-span-2 bg-white rounded-xl shadow-md border border-navy-200 p-4">
-                <div ref={mapRef} style={{ height: '480px', borderRadius: '0.5rem' }}></div>
+                <div ref={mapRef} style={{ height: '480px', borderRadius: '0.5rem' }}>
+                  {mapLoadFailed && (
+                    <div className="h-full flex items-center justify-center text-center px-6">
+                      <p className="text-navy-400 text-sm">
+                        La mappa non Ã¨ riuscita a caricarsi. Controlla la connessione e ricarica la pagina â€” se il problema persiste, prova con un altro browser.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2446,7 +2480,7 @@ const OralExamPrep = () => {
                   {subMode === 'guided' && (
                     <form onSubmit={handleGuidedSubmit} className="space-y-3">
                       <div>
-                        <label className="block text-xs font-medium text-navy-400 mb-1">Partenza (città)</label>
+                        <label className="block text-xs font-medium text-navy-400 mb-1">Partenza (cittÃ )</label>
                         <select value={fromPoi} onChange={(e) => setFromPoi(e.target.value)} className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600">
                           <option value="">Seleziona...</option>
                           {poiCity.map((poi) => <option key={poi.name} value={poi.name}>{poi.name}</option>)}
@@ -2455,7 +2489,7 @@ const OralExamPrep = () => {
 
                       {category === 'urbana' ? (
                         <div>
-                          <label className="block text-xs font-medium text-navy-400 mb-1">Arrivo (città)</label>
+                          <label className="block text-xs font-medium text-navy-400 mb-1">Arrivo (cittÃ )</label>
                           <select value={toPoi} onChange={(e) => setToPoi(e.target.value)} className="w-full bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600">
                             <option value="">Seleziona...</option>
                             {poiCity.map((poi) => <option key={poi.name} value={poi.name}>{poi.name}</option>)}
@@ -2468,7 +2502,7 @@ const OralExamPrep = () => {
                             <option value="">Scegli dalla lista...</option>
                             {poiProvince.map((poi) => <option key={poi.name} value={poi.name}>{poi.name}</option>)}
                           </select>
-                          <p className="text-xs text-navy-400 mb-1">— oppure cerca un indirizzo libero —</p>
+                          <p className="text-xs text-navy-400 mb-1">â€” oppure cerca un indirizzo libero â€”</p>
                           <div className="flex gap-1">
                             <input
                               type="text"
@@ -2477,7 +2511,7 @@ const OralExamPrep = () => {
                               placeholder="es. Iseo, Chiari..."
                               className="flex-1 bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
                             />
-                            <button type="button" onClick={searchProvincePlace} className="bg-navy-100 text-navy-900 px-3 rounded-lg text-sm">🔍</button>
+                            <button type="button" onClick={searchProvincePlace} className="bg-navy-100 text-navy-900 px-3 rounded-lg text-sm">ðŸ”</button>
                           </div>
                           {provinceSearchResults.length > 0 && (
                             <div className="mt-1 border border-navy-100 rounded-lg overflow-hidden">
@@ -2513,7 +2547,7 @@ const OralExamPrep = () => {
                         onClick={drawRandomQuizPair}
                         className="w-full bg-navy-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors mb-3"
                       >
-                        🎲 Estrai due punti
+                        ðŸŽ² Estrai due punti
                       </button>
                       {quizPair && (
                         <div className="bg-paper rounded-lg p-3 mb-3">
@@ -2539,7 +2573,7 @@ const OralExamPrep = () => {
                       {routeData.towns && routeData.towns.length > 0 && (
                         <p className="text-sm mb-2"><span className="text-navy-400">Comuni attraversati:</span> <span className="font-medium text-navy-900">{routeData.towns.join(', ')}</span></p>
                       )}
-                      <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(routeData.distance_m)} · {formatDuration(routeData.duration_s)}</p>
+                      <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(routeData.distance_m)} Â· {formatDuration(routeData.duration_s)}</p>
                       <ol className="space-y-1.5 text-sm text-navy-900 list-decimal list-inside mb-4">
                         {(routeData.instructions || routeData.streets.map(s => ({ text: `Prosegui su ${s}` }))).map((instr, i) => (
                           <li key={i}>{instr.text}{instr.distance_m ? ` (${formatDistance(instr.distance_m)})` : ''}</li>
@@ -2560,7 +2594,7 @@ const OralExamPrep = () => {
 
               {category === 'normativa' && (
                 <div>
-                  <h3 className="font-display text-lg font-semibold text-navy-900 mb-3">Normativa NCC — Domanda Orale</h3>
+                  <h3 className="font-display text-lg font-semibold text-navy-900 mb-3">Normativa NCC â€” Domanda Orale</h3>
                   {normativaLoading || !normativaQuestion ? (
                     <p className="text-navy-400 text-sm">Caricamento...</p>
                   ) : (
@@ -2578,7 +2612,7 @@ const OralExamPrep = () => {
                           <div className="space-y-1 mb-4">
                             {normativaQuestion.options.map((opt, i) => (
                               <p key={i} className={`text-sm ${i === normativaQuestion.correct_answer ? 'text-leaf-600 font-medium' : 'text-navy-400'}`}>
-                                {String.fromCharCode(65 + i)}) {opt} {i === normativaQuestion.correct_answer && '✓'}
+                                {String.fromCharCode(65 + i)}) {opt} {i === normativaQuestion.correct_answer && 'âœ“'}
                               </p>
                             ))}
                           </div>
@@ -2592,7 +2626,7 @@ const OralExamPrep = () => {
                           </div>
 
                           <button onClick={loadNormativaQuestion} className="mt-4 text-navy-600 hover:text-navy-900 text-sm font-medium">
-                            Prossima domanda →
+                            Prossima domanda â†’
                           </button>
                         </div>
                       )}
