@@ -1827,6 +1827,24 @@ const POI_CATEGORY_COLORS = {
   altro: '#12233F',
 };
 
+const POI_CATEGORY_LABELS = {
+  monumento: 'Monumenti',
+  sanita: 'Sanità',
+  trasporti: 'Trasporti',
+  hotel: 'Hotel',
+  ospedale: 'Ospedali',
+  casa_di_cura: 'Case di cura',
+  montagna: 'Montagna',
+  sciistico: 'Aree sciistiche',
+  lago: 'Lago',
+  balneare: 'Balneare',
+  enogastronomia: 'Enogastronomia',
+  altro: 'Altro',
+};
+
+const CITY_LEGEND_CATEGORIES = ['monumento', 'sanita', 'trasporti', 'hotel'];
+const PROVINCE_LEGEND_CATEGORIES = ['ospedale', 'casa_di_cura', 'sciistico', 'balneare', 'enogastronomia'];
+
 // Local-only microphone recording for self-review — nothing is uploaded or
 // saved anywhere; the clip lives only in the browser tab and disappears
 // when the component unmounts or a new recording starts.
@@ -2079,6 +2097,8 @@ const OralExamPrep = () => {
   const calculateRoute = async (from, to, includeTowns) => {
     setRouteLoading(true);
     setRouteError('');
+    setRouteData(null);
+    clearRoute(); // avoid showing a stale route from a previous, different pair
     try {
       const response = await axios.get(`${API}/route`, {
         params: { from_lat: from.lat, from_lng: from.lng, to_lat: to.lat, to_lng: to.lng, include_towns: !!includeTowns }
@@ -2087,7 +2107,10 @@ const OralExamPrep = () => {
       drawRoute(response.data.geometry);
       return response.data;
     } catch (error) {
-      setRouteError('Impossibile calcolare il percorso. Riprova tra qualche secondo.');
+      // Temporary: surface the backend's detailed diagnostic message while
+      // we're pinning down the routing issue — replace with a plain
+      // message once confirmed fixed.
+      setRouteError(error.response?.data?.detail || 'Impossibile calcolare il percorso. Riprova tra qualche secondo.');
       setRouteData(null);
       return null;
     } finally {
@@ -2455,6 +2478,14 @@ const OralExamPrep = () => {
                       </p>
                     </div>
                   )}
+                </div>
+                <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-navy-50">
+                  {(category === 'provincia' ? [...CITY_LEGEND_CATEGORIES, ...PROVINCE_LEGEND_CATEGORIES] : CITY_LEGEND_CATEGORIES).map((cat) => (
+                    <span key={cat} className="flex items-center gap-1.5 text-xs text-navy-400">
+                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: POI_CATEGORY_COLORS[cat] }}></span>
+                      {POI_CATEGORY_LABELS[cat]}
+                    </span>
+                  ))}
                 </div>
               </div>
             )}
