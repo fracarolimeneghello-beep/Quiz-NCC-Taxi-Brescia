@@ -1818,8 +1818,11 @@ const POI_CATEGORY_COLORS = {
   trasporti: '#1E8E5A',
   hotel: '#B8860B',
   ospedale: '#D6273C',
+  casa_di_cura: '#E0577A',
   montagna: '#1E8E5A',
+  sciistico: '#3C557F',
   lago: '#3C557F',
+  balneare: '#2E9CCA',
   enogastronomia: '#B8860B',
   altro: '#12233F',
 };
@@ -2029,11 +2032,22 @@ const OralExamPrep = () => {
 
   const drawRoute = (geometry) => {
     clearRoute();
-    if (!mapInstanceRef.current || !geometry) return;
+    if (!mapInstanceRef.current || !geometry || geometry.length === 0) return;
     const latlngs = geometry.map(([lng, lat]) => [lat, lng]);
-    const line = window.L.polyline(latlngs, { color: '#D6273C', weight: 5, opacity: 0.85 });
+    const line = window.L.polyline(latlngs, { color: '#D6273C', weight: 5, opacity: 0.9 });
     line.addTo(routeLayerRef.current);
-    mapInstanceRef.current.fitBounds(line.getBounds(), { padding: [30, 30] });
+
+    // Distinct start (green) and end (red) markers so the route is
+    // unambiguous even at a glance, on top of the plain category markers.
+    const start = latlngs[0];
+    const end = latlngs[latlngs.length - 1];
+    window.L.circleMarker(start, { radius: 9, fillColor: '#1E8E5A', color: '#fff', weight: 3, fillOpacity: 1 })
+      .bindTooltip('Partenza', { permanent: false }).addTo(routeLayerRef.current);
+    window.L.circleMarker(end, { radius: 9, fillColor: '#D6273C', color: '#fff', weight: 3, fillOpacity: 1 })
+      .bindTooltip('Arrivo', { permanent: false }).addTo(routeLayerRef.current);
+
+    routeLayerRef.current.bringToFront();
+    mapInstanceRef.current.fitBounds(line.getBounds(), { padding: [40, 40] });
   };
 
   const calculateRoute = async (from, to, includeTowns) => {
@@ -2373,8 +2387,10 @@ const OralExamPrep = () => {
                             <p className="text-sm mb-2"><span className="text-navy-400">Comuni attraversati:</span> <span className="font-medium text-navy-900">{simRouteData.towns.join(', ')}</span></p>
                           )}
                           <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(simRouteData.distance_m)} · {formatDuration(simRouteData.duration_s)}</p>
-                          <ol className="space-y-1 text-sm text-navy-900 list-decimal list-inside">
-                            {simRouteData.streets.map((s, i) => <li key={i}>{s}</li>)}
+                          <ol className="space-y-1.5 text-sm text-navy-900 list-decimal list-inside">
+                            {(simRouteData.instructions || simRouteData.streets.map(s => ({ text: `Prosegui su ${s}` }))).map((instr, i) => (
+                              <li key={i}>{instr.text}{instr.distance_m ? ` (${formatDistance(instr.distance_m)})` : ''}</li>
+                            ))}
                           </ol>
                         </div>
                       )
@@ -2524,8 +2540,10 @@ const OralExamPrep = () => {
                         <p className="text-sm mb-2"><span className="text-navy-400">Comuni attraversati:</span> <span className="font-medium text-navy-900">{routeData.towns.join(', ')}</span></p>
                       )}
                       <p className="text-xs text-navy-400 font-mono mb-2">{formatDistance(routeData.distance_m)} · {formatDuration(routeData.duration_s)}</p>
-                      <ol className="space-y-1 text-sm text-navy-900 list-decimal list-inside mb-4">
-                        {routeData.streets.map((s, i) => <li key={i}>{s}</li>)}
+                      <ol className="space-y-1.5 text-sm text-navy-900 list-decimal list-inside mb-4">
+                        {(routeData.instructions || routeData.streets.map(s => ({ text: `Prosegui su ${s}` }))).map((instr, i) => (
+                          <li key={i}>{instr.text}{instr.distance_m ? ` (${formatDistance(instr.distance_m)})` : ''}</li>
+                        ))}
                       </ol>
 
                       <AudioRecorder />
