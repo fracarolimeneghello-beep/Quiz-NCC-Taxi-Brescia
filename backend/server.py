@@ -675,6 +675,57 @@ async def upload_poi(
 # server-side (rather than called directly from the browser) to avoid
 # CORS issues and to keep the public OSRM demo server from being hit
 # directly by unauthenticated traffic.
+_MANEUVER_PHRASES = {
+    ("turn", "left"): "Gira a sinistra",
+    ("turn", "right"): "Gira a destra",
+    ("turn", "slight left"): "Svolta leggermente a sinistra",
+    ("turn", "slight right"): "Svolta leggermente a destra",
+    ("turn", "sharp left"): "Svolta decisamente a sinistra",
+    ("turn", "sharp right"): "Svolta decisamente a destra",
+    ("turn", "straight"): "Prosegui dritto",
+    ("turn", "uturn"): "Fai un'inversione a U",
+    ("new name", None): "Prosegui, la strada cambia nome",
+    ("continue", "left"): "Continua leggermente a sinistra",
+    ("continue", "right"): "Continua leggermente a destra",
+    ("continue", "straight"): "Continua dritto",
+    ("continue", None): "Continua",
+    ("merge", None): "Immettiti",
+    ("merge", "left"): "Immettiti a sinistra",
+    ("merge", "right"): "Immettiti a destra",
+    ("fork", "left"): "Al bivio, tieni la sinistra",
+    ("fork", "right"): "Al bivio, tieni la destra",
+    ("fork", None): "Al bivio, prosegui",
+    ("end of road", "left"): "In fondo alla strada, gira a sinistra",
+    ("end of road", "right"): "In fondo alla strada, gira a destra",
+    ("roundabout", None): "Alla rotonda, imbocca",
+    ("rotary", None): "Alla rotonda, imbocca",
+    ("roundabout turn", None): "Alla rotonda, imbocca",
+    ("on ramp", None): "Prendi la rampa per",
+    ("off ramp", None): "Esci verso",
+    ("depart", None): "Parti su",
+    ("arrive", None): "Sei arrivato a destinazione",
+}
+
+def _maneuver_to_italian(maneuver, street_name):
+    """Translates an OSRM step's maneuver (type + modifier) into a short
+    Italian driving instruction, e.g. 'Gira a destra in Via dei Mille'."""
+    m_type = maneuver.get("type", "")
+    modifier = maneuver.get("modifier")
+    phrase = _MANEUVER_PHRASES.get((m_type, modifier)) or _MANEUVER_PHRASES.get((m_type, None))
+
+    if not phrase:
+        phrase = "Prosegui su" if street_name else "Prosegui"
+
+    if m_type == "arrive":
+        return phrase
+    if m_type == "roundabout" or m_type == "rotary" or m_type == "roundabout turn":
+        exit_num = maneuver.get("exit")
+        exit_txt = f" alla {exit_num}ª uscita" if exit_num else ""
+        return f"{phrase}{exit_txt}" + (f" {street_name}" if street_name else "")
+    if street_name:
+        return f"{phrase} in {street_name}" if m_type in ("turn", "end of road") else f"{phrase} su {street_name}"
+    return phrase
+
 def _bearing_to_compass(from_lat, from_lng, to_lat, to_lng):
     """Simple great-circle bearing, translated to an 8-point compass label."""
     import math
@@ -721,11 +772,21 @@ async def _towns_along_route(geometry, http_client, max_samples=6):
 async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: float,
                      include_towns: bool = False,
                      current_user: User = Depends(get_current_user)):
-    osrm_url = f"https://router.project-osrm.org/route/v1/driving/{from_lng},{from_lat};{to_lng},{to_lat}"
-    params = {"overview": "full", "geometries": "geojson", "steps": "true"}
+    mapbox_token = os.environ.get("MAPBOX_TOKEN")
+    if mapbox_token:
+        # Mapbox follows real road hierarchy (major arteries) much like
+        # Google Maps — the plain OSRM demo server below sometimes routes
+        # through minor streets for a marginally shorter path, which isn't
+        # what a professional driver would actually say. Mapbox's response
+        # shape is OSRM-compatible, so the parsing below needs no changes.
+        route_url = f"https://api.mapbox.com/directions/v5/mapbox/driving/{from_lng},{from_lat};{to_lng},{to_lat}"
+        params = {"overview": "full", "geometries": "geojson", "steps": "true", "access_token": mapbox_token}
+    else:
+        route_url = f"https://router.project-osrm.org/route/v1/driving/{from_lng},{from_lat};{to_lng},{to_lat}"
+        params = {"overview": "full", "geometries": "geojson", "steps": "true"}
     try:
         async with httpx.AsyncClient(timeout=15) as http_client:
-            response = await http_client.get(osrm_url, params=params)
+            response = await http_client.get(route_url, params=params)
             response.raise_for_status()
             data = response.json()
     except Exception:
@@ -747,11 +808,24 @@ async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: flo
             if name and (not street_names or street_names[-1] != name):
                 street_names.append(name)
 
+    # Turn-by-turn instructions in Italian, e.g. "Gira a destra in Via dei
+    # Mille" — built from OSRM's maneuver type/modifier per step, with the
+    # distance to travel on that step so it reads like real directions.
+    instructions = []
+    for leg in route["legs"]:
+        for step in leg["steps"]:
+            name = step.get("name", "").strip()
+            maneuver = step.get("maneuver", {})
+            text = _maneuver_to_italian(maneuver, name)
+            distance = round(step.get("distance", 0))
+            instructions.append({"text": text, "street": name, "distance_m": distance})
+
     geometry = route["geometry"]["coordinates"]
     result = {
         "distance_m": round(route["distance"]),
         "duration_s": round(route["duration"]),
         "streets": street_names,
+        "instructions": instructions,
         "geometry": geometry,  # [[lng, lat], ...]
         "compass_direction": _bearing_to_compass(from_lat, from_lng, to_lat, to_lng),
     }
