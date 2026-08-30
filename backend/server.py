@@ -787,11 +787,19 @@ async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: flo
     try:
         async with httpx.AsyncClient(timeout=15) as http_client:
             response = await http_client.get(route_url, params=params)
+            status_code = response.status_code
+            response_text = response.text[:300]
             response.raise_for_status()
             data = response.json()
-    except Exception:
+    except Exception as e:
         logging.getLogger(__name__).exception("Route calculation failed")
-        raise HTTPException(status_code=502, detail="Impossibile calcolare il percorso in questo momento")
+        # Temporary diagnostic detail — remove once the routing issue is confirmed fixed.
+        detail = f"Impossibile calcolare il percorso: {type(e).__name__}: {str(e)[:200]}"
+        try:
+            detail += f" | status={status_code} body={response_text}"
+        except NameError:
+            pass
+        raise HTTPException(status_code=502, detail=detail)
 
     if data.get("code") != "Ok" or not data.get("routes"):
         raise HTTPException(status_code=404, detail="Percorso non trovato")
