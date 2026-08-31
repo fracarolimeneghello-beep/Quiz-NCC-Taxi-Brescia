@@ -2090,7 +2090,6 @@ const OralExamPrep = () => {
     window.L.circleMarker(end, { radius: 9, fillColor: '#D6273C', color: '#fff', weight: 3, fillOpacity: 1 })
       .bindTooltip('Arrivo', { permanent: false }).addTo(routeLayerRef.current);
 
-    routeLayerRef.current.bringToFront();
     mapInstanceRef.current.fitBounds(line.getBounds(), { padding: [40, 40] });
   };
 
