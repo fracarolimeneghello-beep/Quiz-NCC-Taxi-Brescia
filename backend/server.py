@@ -787,19 +787,11 @@ async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: flo
     try:
         async with httpx.AsyncClient(timeout=15) as http_client:
             response = await http_client.get(route_url, params=params)
-            status_code = response.status_code
-            response_text = response.text[:300]
             response.raise_for_status()
             data = response.json()
-    except Exception as e:
+    except Exception:
         logging.getLogger(__name__).exception("Route calculation failed")
-        # Temporary diagnostic detail — remove once the routing issue is confirmed fixed.
-        detail = f"Impossibile calcolare il percorso: {type(e).__name__}: {str(e)[:200]}"
-        try:
-            detail += f" | status={status_code} body={response_text}"
-        except NameError:
-            pass
-        raise HTTPException(status_code=502, detail=detail)
+        raise HTTPException(status_code=502, detail="Impossibile calcolare il percorso in questo momento")
 
     if data.get("code") != "Ok" or not data.get("routes"):
         raise HTTPException(status_code=404, detail="Percorso non trovato")
@@ -824,6 +816,12 @@ async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: flo
         for step in leg["steps"]:
             name = step.get("name", "").strip()
             maneuver = step.get("maneuver", {})
+            m_type = maneuver.get("type", "")
+            # Skip unnamed micro-maneuvers (tiny turns in parking lots/driveways
+            # with no street name) — nothing useful to say about them, and they
+            # clutter the list. Always keep the very first step and the arrival.
+            if not name and m_type not in ("depart", "arrive"):
+                continue
             text = _maneuver_to_italian(maneuver, name)
             distance = round(step.get("distance", 0))
             instructions.append({"text": text, "street": name, "distance_m": distance})
