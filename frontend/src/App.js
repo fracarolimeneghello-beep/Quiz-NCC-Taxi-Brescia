@@ -1888,7 +1888,7 @@ const AudioRecorder = () => {
 
   return (
     <div className="bg-paper rounded-lg p-3">
-      <p className="text-xs text-navy-400 mb-2">🎙️ Facoltativo: registra la tua risposta a voce e riascoltala prima di darti un voto</p>
+      <p className="text-xs text-navy-400 mb-2">🎙️ Facoltativo: registra ora la tua risposta a voce, poi rivela la soluzione per confrontare</p>
       <div className="flex items-center gap-2 flex-wrap">
         {!recording ? (
           <button type="button" onClick={startRecording} className="bg-navy-900 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-navy-700 transition-colors">
@@ -2417,12 +2417,15 @@ const OralExamPrep = () => {
                 )}
 
                 {!simRevealed ? (
-                  <button
-                    onClick={simReveal}
-                    className="bg-brick-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brick-600 transition-colors"
-                  >
-                    Rivela Risposta
-                  </button>
+                  <div>
+                    <AudioRecorder />
+                    <button
+                      onClick={simReveal}
+                      className="bg-brick-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brick-600 transition-colors mt-3"
+                    >
+                      Rivela Risposta
+                    </button>
+                  </div>
                 ) : (
                   <div>
                     {simSteps[simIndex].type !== 'normativa' ? (
@@ -2453,8 +2456,6 @@ const OralExamPrep = () => {
                         </div>
                       )
                     )}
-
-                    <AudioRecorder />
 
                     <div className="mt-4">
                       <p className="text-xs text-navy-400 mb-2">{RUBRIC_TEXT[simSteps[simIndex].type]}</p>
@@ -2586,9 +2587,12 @@ const OralExamPrep = () => {
                         </div>
                       )}
                       {quizPair && !revealed && (
-                        <button onClick={revealQuizRoute} disabled={routeLoading} className="w-full bg-brick-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-brick-600 disabled:opacity-50 transition-colors">
-                          {routeLoading ? 'Calcolo...' : 'Mostra il percorso'}
-                        </button>
+                        <>
+                          <AudioRecorder />
+                          <button onClick={revealQuizRoute} disabled={routeLoading} className="w-full bg-brick-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-brick-600 disabled:opacity-50 transition-colors mt-3">
+                            {routeLoading ? 'Calcolo...' : 'Rivela Soluzione'}
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -2610,7 +2614,7 @@ const OralExamPrep = () => {
                         ))}
                       </ol>
 
-                      <AudioRecorder />
+                      {subMode === 'guided' && <AudioRecorder />}
 
                       <div className="mt-4">
                         <p className="text-xs text-navy-400 mb-2">{RUBRIC_TEXT[category]}</p>
@@ -2634,9 +2638,12 @@ const OralExamPrep = () => {
                       </div>
 
                       {!normativaRevealed ? (
-                        <button onClick={() => setNormativaRevealed(true)} className="bg-brick-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brick-600 transition-colors">
-                          Rivela Risposta
-                        </button>
+                        <div>
+                          <AudioRecorder />
+                          <button onClick={() => setNormativaRevealed(true)} className="bg-brick-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brick-600 transition-colors mt-3">
+                            Rivela Risposta
+                          </button>
+                        </div>
                       ) : (
                         <div>
                           <div className="space-y-1 mb-4">
@@ -2646,8 +2653,6 @@ const OralExamPrep = () => {
                               </p>
                             ))}
                           </div>
-
-                          <AudioRecorder />
 
                           <div className="mt-4">
                             <p className="text-xs text-navy-400 mb-2">{RUBRIC_TEXT.normativa}</p>
