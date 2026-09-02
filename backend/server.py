@@ -529,7 +529,7 @@ async def create_student(data: StudentCreate, admin_user: User = Depends(get_adm
     return {
         "id": student.id,
         "username": student.username,
-        "expires_at": student.expires_at.isoformat()
+        "expires_at": student.expires_at.isoformat() + "Z"
     }
 
 @api_router.get("/admin/students")
@@ -540,8 +540,8 @@ async def list_students(admin_user: User = Depends(get_admin_user)):
         {
             "id": s["id"],
             "username": s["username"],
-            "created_at": s["created_at"].isoformat() if s.get("created_at") else None,
-            "expires_at": s["expires_at"].isoformat() if s.get("expires_at") else None,
+            "created_at": s["created_at"].isoformat() + "Z" if s.get("created_at") else None,
+            "expires_at": s["expires_at"].isoformat() + "Z" if s.get("expires_at") else None,
             "expired": bool(s.get("expires_at")) and s["expires_at"] < now
         }
         for s in sorted(students, key=lambda x: x.get("username", ""))
@@ -562,7 +562,7 @@ async def extend_student(student_id: str, data: StudentExtend, admin_user: User 
     new_expiry = add_months(base, data.months)
 
     await db.users.update_one({"id": student_id}, {"$set": {"expires_at": new_expiry}})
-    return {"id": student_id, "expires_at": new_expiry.isoformat()}
+    return {"id": student_id, "expires_at": new_expiry.isoformat() + "Z"}
 
 @api_router.delete("/admin/students/{student_id}")
 async def revoke_student(student_id: str, admin_user: User = Depends(get_admin_user)):
@@ -951,7 +951,7 @@ async def list_notices(current_user: User = Depends(get_current_user)):
             "body": n["body"],
             "source": n.get("source", "admin"),
             "url": n.get("url"),
-            "created_at": n["created_at"].isoformat()
+            "created_at": n["created_at"].isoformat() + "Z"
         }
         for n in notices
     ]
@@ -1285,7 +1285,11 @@ async def start_quiz(quiz_data: QuizStart, current_user: User = Depends(get_curr
             "questions": questions_for_frontend,
             "quiz_type": quiz_data.quiz_type,
             "time_limit": 1800,  # 30 minutes in seconds
-            "expires_at": (quiz_attempt.started_at + timedelta(seconds=1800)).isoformat()
+            # datetime.utcnow() produces a naive datetime; isoformat() alone
+            # omits the timezone, so a browser (e.g. in Italy, UTC+1/+2)
+            # would misread this as LOCAL time and think the exam already
+            # expired. The explicit "Z" fixes that.
+            "expires_at": (quiz_attempt.started_at + timedelta(seconds=1800)).isoformat() + "Z"
         }
     
     # For free, by_subject and review_errors modes
@@ -1475,8 +1479,8 @@ async def get_user_stats(current_user: User = Depends(get_current_user)):
             "total_correct": attempt["total_correct"],
             "total_questions": attempt["total_questions"],
             "passed": attempt["passed"],
-            "started_at": attempt["started_at"].isoformat() if attempt["started_at"] else None,
-            "completed_at": attempt["completed_at"].isoformat() if attempt.get("completed_at") else None
+            "started_at": attempt["started_at"].isoformat() + "Z" if attempt["started_at"] else None,
+            "completed_at": attempt["completed_at"].isoformat() + "Z" if attempt.get("completed_at") else None
         }
         cleaned_recent.append(cleaned_attempt)
     
@@ -1512,7 +1516,7 @@ async def get_user_stats(current_user: User = Depends(get_current_user)):
     completed_sorted = sorted(completed, key=lambda x: x["completed_at"])[-20:]
     stats["history"] = [
         {
-            "date": a["completed_at"].isoformat(),
+            "date": a["completed_at"].isoformat() + "Z",
             "percentage": round(a["total_correct"] / a["total_questions"] * 100),
             "passed": a.get("passed", False)
         }
