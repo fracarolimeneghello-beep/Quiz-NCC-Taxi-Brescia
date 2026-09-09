@@ -104,6 +104,17 @@ class StudentCreate(BaseModel):
 class StudentExtend(BaseModel):
     months: int
 
+class RedemptionCodeCreate(BaseModel):
+    label: str
+    max_redemptions: int
+    months: int = 6
+    code: Optional[str] = None  # auto-generated if not provided
+
+class CodeRegister(BaseModel):
+    username: str
+    password: str
+    code: str
+
 class NoticeCreate(BaseModel):
     title: str
     body: str
@@ -447,9 +458,50 @@ def validate_poi_format(poi_data: Dict[str, Any]) -> bool:
     return True
 
 # Auth endpoints
-# Public self-registration is disabled: student accounts are provisioned
-# by the admin (see /admin/students below) so access can't be casually
-# shared, and general-public accounts will go through a future paid signup.
+# Open self-registration is disabled (accounts are otherwise admin-provisioned
+# for students) — but anyone with a valid redemption code (e.g. printed in
+# the companion book) can create their own account through this endpoint.
+@api_router.post("/auth/register-with-code")
+async def register_with_code(data: CodeRegister, _rl: None = Depends(rate_limit("register_code", 10, 300))):
+    existing = await db.users.find_one({"username": data.username})
+    if existing:
+        raise HTTPException(status_code=400, detail="Questo username è già in uso")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="La password deve avere almeno 6 caratteri")
+
+    # Atomic: only succeeds if the code exists, is active, and still has
+    # redemptions left — the increment happens in the same operation so two
+    # near-simultaneous redemptions can't both slip through past the limit.
+    code_normalized = data.code.strip().upper()
+    redemption = await db.redemption_codes.find_one_and_update(
+        {
+            "code": code_normalized,
+            "active": True,
+            "$expr": {"$lt": ["$redeemed_count", "$max_redemptions"]}
+        },
+        {"$inc": {"redeemed_count": 1}}
+    )
+    if not redemption:
+        raise HTTPException(status_code=400, detail="Codice non valido, disattivato o esaurito")
+
+    user = User(
+        username=data.username,
+        password_hash=hash_password(data.password),
+        is_admin=False,
+        expires_at=add_months(datetime.utcnow(), redemption.get("months", 6))
+    )
+    await db.users.insert_one(user.dict())
+
+    session_id = secrets.token_hex(16)
+    await db.users.update_one({"id": user.id}, {"$set": {"active_session_id": session_id}})
+
+    return {
+        "message": "Registrazione completata",
+        "token": create_access_token(user.id, user.token_version, session_id),
+        "username": user.username,
+        "is_admin": False
+    }
+
 @api_router.post("/auth/login")
 async def login_user(login_data: UserLogin, _rl: None = Depends(rate_limit("login", 10, 300))):
     user = await db.users.find_one({"username": login_data.username})
@@ -937,6 +989,63 @@ async def geocode_search(q: str, current_user: User = Depends(get_current_user),
          "lat": float(item["lat"]), "lng": float(item["lon"])}
         for item in data
     ]}
+
+# Admin management of book redemption codes
+@api_router.post("/admin/redemption-codes")
+async def create_redemption_code(data: RedemptionCodeCreate, admin_user: User = Depends(get_admin_user)):
+    if data.max_redemptions < 1 or data.max_redemptions > 100000:
+        raise HTTPException(status_code=400, detail="Numero di riscatti non valido")
+    if not (1 <= data.months <= 60):
+        raise HTTPException(status_code=400, detail="Durata non valida (1-60 mesi)")
+
+    code = (data.code or f"NCC-{secrets.token_hex(4).upper()}").strip().upper()
+    existing = await db.redemption_codes.find_one({"code": code})
+    if existing:
+        raise HTTPException(status_code=400, detail="Questo codice esiste già")
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "code": code,
+        "label": data.label,
+        "max_redemptions": data.max_redemptions,
+        "redeemed_count": 0,
+        "months": data.months,
+        "active": True,
+        "created_at": datetime.utcnow()
+    }
+    await db.redemption_codes.insert_one(record)
+    return {"id": record["id"], "code": code}
+
+@api_router.get("/admin/redemption-codes")
+async def list_redemption_codes(admin_user: User = Depends(get_admin_user)):
+    codes = await db.redemption_codes.find().sort("created_at", -1).to_list(500)
+    return [
+        {
+            "id": c["id"],
+            "code": c["code"],
+            "label": c.get("label", ""),
+            "redeemed_count": c.get("redeemed_count", 0),
+            "max_redemptions": c["max_redemptions"],
+            "months": c.get("months", 6),
+            "active": c.get("active", True),
+            "created_at": c["created_at"].isoformat() + "Z"
+        }
+        for c in codes
+    ]
+
+@api_router.post("/admin/redemption-codes/{code_id}/deactivate")
+async def deactivate_redemption_code(code_id: str, admin_user: User = Depends(get_admin_user)):
+    result = await db.redemption_codes.update_one({"id": code_id}, {"$set": {"active": False}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Codice non trovato")
+    return {"message": "Codice disattivato"}
+
+@api_router.post("/admin/redemption-codes/{code_id}/activate")
+async def activate_redemption_code(code_id: str, admin_user: User = Depends(get_admin_user)):
+    result = await db.redemption_codes.update_one({"id": code_id}, {"$set": {"active": True}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Codice non trovato")
+    return {"message": "Codice riattivato"}
 
 # Notices ("what's new" / news feed) — a mix of things the admin writes by
 # hand (e.g. app updates) and automatic alerts (e.g. a new exam session
