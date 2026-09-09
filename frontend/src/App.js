@@ -69,6 +69,23 @@ const AuthProvider = ({ children }) => {
     }
   };
 
+  const registerWithCode = async (username, password, code) => {
+    try {
+      const response = await axios.post(`${API}/auth/register-with-code`, { username, password, code });
+      const { token: newToken, username: userName, is_admin } = response.data;
+      const userData = { username: userName, is_admin: is_admin || false };
+      setToken(newToken);
+      setUser(userData);
+      localStorage.setItem('token', newToken);
+      localStorage.setItem('user', JSON.stringify(userData));
+      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+      return { success: true };
+    } catch (error) {
+      console.error('Registration failed:', error);
+      return { success: false, message: error.response?.data?.detail };
+    }
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -100,7 +117,7 @@ const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, changePassword }}>
+    <AuthContext.Provider value={{ user, token, login, logout, changePassword, registerWithCode }}>
       {children}
     </AuthContext.Provider>
   );
@@ -120,6 +137,10 @@ const AdminPanel = () => {
   const [poiCounts, setPoiCounts] = useState({ city: 0, province: 0 });
   const [poiFiles, setPoiFiles] = useState({});
   const [poiUploadStatus, setPoiUploadStatus] = useState({});
+  const [codes, setCodes] = useState([]);
+  const [codesLoading, setCodesLoading] = useState(false);
+  const [newCode, setNewCode] = useState({ label: '', max_redemptions: 300, months: 6, code: '' });
+  const [codeError, setCodeError] = useState('');
   const { user } = useContext(AuthContext);
 
   const subjects = [
@@ -137,6 +158,7 @@ const AdminPanel = () => {
       fetchQuestionCounts();
       fetchStudents();
       fetchPoiCounts();
+      fetchCodes();
     }
   }, [user]);
 
@@ -146,6 +168,41 @@ const AdminPanel = () => {
       setPoiCounts(response.data);
     } catch (error) {
       console.error('Error fetching POI counts:', error);
+    }
+  };
+
+  const fetchCodes = async () => {
+    setCodesLoading(true);
+    try {
+      const response = await axios.get(`${API}/admin/redemption-codes`);
+      setCodes(response.data);
+    } catch (error) {
+      console.error('Error fetching codes:', error);
+    } finally {
+      setCodesLoading(false);
+    }
+  };
+
+  const createCode = async (e) => {
+    e.preventDefault();
+    setCodeError('');
+    try {
+      const payload = { label: newCode.label, max_redemptions: Number(newCode.max_redemptions), months: Number(newCode.months) };
+      if (newCode.code.trim()) payload.code = newCode.code.trim();
+      await axios.post(`${API}/admin/redemption-codes`, payload);
+      setNewCode({ label: '', max_redemptions: 300, months: 6, code: '' });
+      fetchCodes();
+    } catch (error) {
+      setCodeError(error.response?.data?.detail || 'Errore durante la creazione del codice');
+    }
+  };
+
+  const toggleCodeActive = async (codeId, currentlyActive) => {
+    try {
+      await axios.post(`${API}/admin/redemption-codes/${codeId}/${currentlyActive ? 'deactivate' : 'activate'}`);
+      fetchCodes();
+    } catch (error) {
+      console.error('Error toggling code:', error);
     }
   };
 
@@ -555,6 +612,104 @@ const AdminPanel = () => {
           ))}
         </div>
 
+        {/* Book Redemption Codes */}
+        <div className="border border-navy-200 rounded-lg p-6 mb-8">
+          <h3 className="text-lg font-semibold text-navy-900 mb-1">📖 Codici Libro</h3>
+          <p className="text-navy-400 text-sm mb-4">
+            Un codice per edizione/tiratura del libro, condiviso tra le copie, con un limite di riscatti e una durata di accesso.
+          </p>
+
+          <form onSubmit={createCode} className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
+            <input
+              type="text"
+              placeholder="Etichetta (es. Edizione 2026)"
+              value={newCode.label}
+              onChange={(e) => setNewCode({ ...newCode, label: e.target.value })}
+              required
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
+            />
+            <input
+              type="text"
+              placeholder="Codice (vuoto = automatico)"
+              value={newCode.code}
+              onChange={(e) => setNewCode({ ...newCode, code: e.target.value })}
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
+            />
+            <input
+              type="number"
+              min="1"
+              placeholder="Max riscatti"
+              value={newCode.max_redemptions}
+              onChange={(e) => setNewCode({ ...newCode, max_redemptions: e.target.value })}
+              required
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
+            />
+            <input
+              type="number"
+              min="1"
+              max="60"
+              placeholder="Mesi accesso"
+              value={newCode.months}
+              onChange={(e) => setNewCode({ ...newCode, months: e.target.value })}
+              required
+              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
+            />
+            <button
+              type="submit"
+              className="bg-navy-900 text-white px-4 py-2 rounded-lg hover:bg-navy-700 transition-colors text-sm font-medium"
+            >
+              Crea Codice
+            </button>
+          </form>
+          {codeError && <div className="text-brick-500 text-sm mb-4">{codeError}</div>}
+
+          {codesLoading ? (
+            <p className="text-navy-400 text-sm">Caricamento...</p>
+          ) : codes.length === 0 ? (
+            <p className="text-navy-400 text-sm">Nessun codice creato ancora.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-navy-400 border-b border-navy-100">
+                    <th className="py-2 pr-4">Codice</th>
+                    <th className="py-2 pr-4">Etichetta</th>
+                    <th className="py-2 pr-4">Riscatti</th>
+                    <th className="py-2 pr-4">Durata</th>
+                    <th className="py-2 pr-4">Stato</th>
+                    <th className="py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {codes.map((c) => (
+                    <tr key={c.id} className="border-b border-navy-50">
+                      <td className="py-2 pr-4 font-mono font-medium text-navy-900">{c.code}</td>
+                      <td className="py-2 pr-4 text-navy-900">{c.label}</td>
+                      <td className="py-2 pr-4 font-mono text-navy-900">{c.redeemed_count}/{c.max_redemptions}</td>
+                      <td className="py-2 pr-4 font-mono text-navy-900">{c.months} mesi</td>
+                      <td className="py-2 pr-4">
+                        {c.active ? (
+                          <span className="text-leaf-600 font-medium">Attivo</span>
+                        ) : (
+                          <span className="text-brick-500 font-medium">Disattivo</span>
+                        )}
+                      </td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => toggleCodeActive(c.id, c.active)}
+                          className={`text-xs font-medium ${c.active ? 'text-brick-500 hover:text-brick-600' : 'text-leaf-600 hover:text-leaf-700'}`}
+                        >
+                          {c.active ? 'Disattiva' : 'Riattiva'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* Upload Section */}
         <div className="space-y-6">
           {subjects.map((subject) => (
@@ -719,28 +874,41 @@ const SkylineArt = () => (
 
 // Login Component
 const LoginPage = () => {
+  const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [bookCode, setBookCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(() => {
     const notice = localStorage.getItem('authNotice');
     if (notice) localStorage.removeItem('authNotice');
     return notice || '';
   });
-  const { login } = useContext(AuthContext);
+  const [success, setSuccess] = useState(false);
+  const { login, registerWithCode } = useContext(AuthContext);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    const result = await login(username, password);
-    
+    const result = mode === 'login'
+      ? await login(username, password)
+      : await registerWithCode(username, password, bookCode);
+
     if (!result.success) {
-      setError(result.message || 'Login fallito. Controlla le credenziali.');
+      setError(result.message || (mode === 'login' ? 'Login fallito. Controlla le credenziali.' : 'Registrazione fallita.'));
+    } else if (mode === 'register') {
+      setSuccess(true);
     }
-    
+
     setLoading(false);
+  };
+
+  const switchMode = (newMode) => {
+    setMode(newMode);
+    setError('');
+    setSuccess(false);
   };
 
   return (
@@ -779,7 +947,7 @@ const LoginPage = () => {
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <h1 className="font-display text-3xl font-semibold text-navy-900 mb-2">
               Esame Provinciale Brescia
             </h1>
@@ -788,48 +956,92 @@ const LoginPage = () => {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-navy-900 mb-2">
-                Username
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-navy-900 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors"
-                required
-              />
-            </div>
-
-            {error && (
-              <div className="text-brick-500 text-sm text-center font-medium">{error}</div>
-            )}
-
+          <div className="flex bg-paper rounded-lg p-1 mb-6">
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 focus:ring-4 focus:ring-navy-100 disabled:opacity-50 font-medium transition-colors"
+              type="button"
+              onClick={() => switchMode('login')}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${mode === 'login' ? 'bg-navy-900 text-white' : 'text-navy-600'}`}
             >
-              {loading ? 'Caricamento...' : 'Accedi'}
+              Accedi
             </button>
-          </form>
+            <button
+              type="button"
+              onClick={() => switchMode('register')}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${mode === 'register' ? 'bg-navy-900 text-white' : 'text-navy-600'}`}
+            >
+              Ho un codice del libro
+            </button>
+          </div>
+
+          {success ? (
+            <div className="text-center py-6">
+              <div className="text-leaf-500 text-4xl mb-3">✓</div>
+              <p className="text-navy-900 font-medium">Registrazione completata!</p>
+              <p className="text-navy-400 text-sm mt-1">Stai per accedere automaticamente...</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-navy-900 mb-2">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-navy-900 mb-2">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={mode === 'register' ? 6 : undefined}
+                  className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors"
+                  required
+                />
+              </div>
+
+              {mode === 'register' && (
+                <div>
+                  <label className="block text-sm font-medium text-navy-900 mb-2">
+                    Codice del libro
+                  </label>
+                  <input
+                    type="text"
+                    value={bookCode}
+                    onChange={(e) => setBookCode(e.target.value)}
+                    placeholder="Lo trovi nelle pagine del manuale"
+                    className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors font-mono"
+                    required
+                  />
+                </div>
+              )}
+
+              {error && (
+                <div className="text-brick-500 text-sm text-center font-medium">{error}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-navy-900 text-white py-3 px-4 rounded-lg hover:bg-navy-700 focus:ring-4 focus:ring-navy-100 disabled:opacity-50 font-medium transition-colors"
+              >
+                {loading ? 'Caricamento...' : (mode === 'login' ? 'Accedi' : 'Registrati')}
+              </button>
+            </form>
+          )}
 
           <p className="text-center text-xs text-navy-400 mt-6">
-            Le credenziali vengono fornite dalla scuola guida. Se non le hai ancora ricevute, contatta la segreteria.
+            {mode === 'login'
+              ? 'Sei uno studente della scuola guida? Le credenziali te le forniamo noi.'
+              : 'Il codice si trova stampato nel Manuale di Preparazione all\'Esame NCC/Taxi.'}
           </p>
         </div>
       </div>
