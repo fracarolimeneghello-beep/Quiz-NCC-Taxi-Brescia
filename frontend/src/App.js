@@ -1449,7 +1449,7 @@ const Dashboard = () => {
                 }}
                 className="bg-white text-navy-900 px-6 py-3 rounded-lg font-medium hover:bg-navy-50 transition-colors"
               >
-                Gestisci Domande 🔧
+                Area Amministrazione 🔧
               </button>
             </div>
           </div>
