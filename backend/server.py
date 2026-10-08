@@ -378,7 +378,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     # Account expiry (e.g. a student's 6-month access window)
     expires_at = user.get("expires_at")
     if expires_at and datetime.utcnow() > expires_at:
-        raise HTTPException(status_code=401, detail="Il tuo accesso è scaduto. Contatta la scuola guida per il rinnovo.")
+        raise HTTPException(status_code=401, detail="Il tuo accesso è scaduto. Rinnova l'abbonamento per continuare.")
     return User(**user)
 
 async def get_admin_user(current_user: User = Depends(get_current_user)):
@@ -510,7 +510,7 @@ async def login_user(login_data: UserLogin, _rl: None = Depends(rate_limit("logi
 
     expires_at = user.get("expires_at")
     if expires_at and datetime.utcnow() > expires_at:
-        raise HTTPException(status_code=403, detail="Il tuo accesso è scaduto. Contatta la scuola guida per il rinnovo.")
+        raise HTTPException(status_code=403, detail="Il tuo accesso è scaduto. Rinnova l'abbonamento per continuare.")
 
     # Transparently upgrade legacy (unsalted SHA-256) hashes to PBKDF2 on
     # a successful login, so old accounts get stronger security automatically.
@@ -806,7 +806,7 @@ async def _towns_along_route(geometry, http_client, max_samples=6):
                 resp = await http_client.get(
                     "https://nominatim.openstreetmap.org/reverse",
                     params={"lat": lat, "lon": lng, "format": "jsonv2", "zoom": 14},
-                    headers={"User-Agent": "QuizNCCBrescia/1.0 (scuola guida - uso didattico)"}
+                    headers={"User-Agent": "QuizNCCBrescia/1.0 (app didattica)"}
                 )
                 if resp.status_code == 200:
                     addr = resp.json().get("address", {})
@@ -976,7 +976,7 @@ async def geocode_search(q: str, current_user: User = Depends(get_current_user),
                     "limit": 6,
                     "countrycodes": "it"
                 },
-                headers={"User-Agent": "QuizNCCBrescia/1.0 (scuola guida - uso didattico)"}
+                headers={"User-Agent": "QuizNCCBrescia/1.0 (app didattica)"}
             )
             resp.raise_for_status()
             data = resp.json()
