@@ -938,14 +938,6 @@ const LoginPage = () => {
 
 
       <div className="max-w-md w-full relative">
-        <div className="text-center mb-6">
-          <img
-            src="/logo-autoscuola.png"
-            alt="Autoscuola Desenzanese"
-            className="mx-auto h-20 object-contain mb-4 bg-white rounded-xl p-3"
-          />
-        </div>
-
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           <div className="text-center mb-6">
             <h1 className="font-display text-3xl font-semibold text-navy-900 mb-2">
@@ -1040,7 +1032,7 @@ const LoginPage = () => {
 
           <p className="text-center text-xs text-navy-400 mt-6">
             {mode === 'login'
-              ? 'Sei uno studente della scuola guida? Le credenziali te le forniamo noi.'
+              ? 'Non hai ancora un account? Registrati con il codice del Manuale.'
               : 'Il codice si trova stampato nel Manuale di Preparazione all\'Esame NCC/Taxi.'}
           </p>
         </div>
@@ -1324,11 +1316,6 @@ const Dashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-3">
-              <img
-                src="/logo-autoscuola.png"
-                alt="Autoscuola Desenzanese"
-                className="h-10 object-contain bg-white rounded-md p-1"
-              />
               <h1 className="font-display text-xl font-semibold text-white">
                 Esame Provinciale Brescia
               </h1>
