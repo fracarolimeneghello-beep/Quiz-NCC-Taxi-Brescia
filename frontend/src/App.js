@@ -124,6 +124,83 @@ const AuthProvider = ({ children }) => {
 };
 
 // Admin Panel Component
+// Book code entry: 4 groups of 5 characters (XXXXX-XXXXX-XXXXX-XXXXX). Typing
+// jumps to the next group by itself, pasting a whole code spreads it over
+// the four boxes, and Backspace on an empty box goes back to the previous one.
+// `value` is the 4 groups joined by "-" (e.g. "AB12C--" while half typed).
+const CODE_GROUPS = 4;
+const CODE_GROUP_LEN = 5;
+const CodeInput = ({ value, onChange, required }) => {
+  const refs = useRef([]);
+  const parts = Array.from({ length: CODE_GROUPS }, (_, i) => ((value || '').split('-')[i] || ''));
+  const emit = (arr) => onChange(arr.join('-'));
+
+  const handleChange = (i, raw) => {
+    const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const next = [...parts];
+    if (clean.length <= CODE_GROUP_LEN) {
+      next[i] = clean;
+      emit(next);
+      if (clean.length === CODE_GROUP_LEN && i < CODE_GROUPS - 1) refs.current[i + 1]?.focus();
+      return;
+    }
+    // Longer than one group (paste): spread it over this and the next groups
+    let rest = clean;
+    let idx = i;
+    while (rest.length && idx < CODE_GROUPS) {
+      next[idx] = rest.slice(0, CODE_GROUP_LEN);
+      rest = rest.slice(CODE_GROUP_LEN);
+      idx += 1;
+    }
+    emit(next);
+    const last = Math.min(idx - 1, CODE_GROUPS - 1);
+    refs.current[next[last].length === CODE_GROUP_LEN ? Math.min(last + 1, CODE_GROUPS - 1) : last]?.focus();
+  };
+
+  const handleKeyDown = (i, e) => {
+    if (e.key === 'Backspace' && parts[i] === '' && i > 0) {
+      e.preventDefault();
+      const next = [...parts];
+      next[i - 1] = next[i - 1].slice(0, -1);
+      emit(next);
+      refs.current[i - 1]?.focus();
+    } else if ((e.key === '-' || e.key === ' ') && i < CODE_GROUPS - 1) {
+      e.preventDefault();
+      refs.current[i + 1]?.focus();
+    } else if (e.key === 'ArrowLeft' && e.target.selectionStart === 0 && i > 0) {
+      refs.current[i - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && e.target.selectionStart === parts[i].length && i < CODE_GROUPS - 1) {
+      refs.current[i + 1]?.focus();
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      {parts.map((p, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span className="text-navy-400 font-mono">-</span>}
+          <input
+            ref={(el) => { refs.current[i] = el; }}
+            type="text"
+            value={p}
+            onChange={(e) => handleChange(i, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(i, e)}
+            onFocus={(e) => e.target.select()}
+            placeholder="XXXXX"
+            autoCapitalize="characters"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            required={required}
+            aria-label={`Codice, gruppo ${i + 1} di ${CODE_GROUPS}`}
+            className="min-w-0 flex-1 w-full px-1 py-2 text-center text-base font-mono uppercase tracking-wider bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors placeholder:text-navy-200"
+          />
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
+
 const AdminPanel = () => {
   const [questionCounts, setQuestionCounts] = useState({});
   const [loading, setLoading] = useState(false);
@@ -131,7 +208,7 @@ const AdminPanel = () => {
   const [selectedFiles, setSelectedFiles] = useState({});
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
-  const [newStudent, setNewStudent] = useState({ username: '', password: '', months: 6 });
+  const [newStudent, setNewStudent] = useState({ username: '', password: '', months: 12 });
   const [studentError, setStudentError] = useState('');
   const [extendMonths, setExtendMonths] = useState({});
   const [poiCounts, setPoiCounts] = useState({ city: 0, province: 0 });
@@ -139,7 +216,7 @@ const AdminPanel = () => {
   const [poiUploadStatus, setPoiUploadStatus] = useState({});
   const [codes, setCodes] = useState([]);
   const [codesLoading, setCodesLoading] = useState(false);
-  const [newCode, setNewCode] = useState({ label: '', max_redemptions: 300, months: 6, code: '' });
+  const [newCode, setNewCode] = useState({ label: '', max_redemptions: 300, months: 12, code: '', replace_previous: true });
   const [codeError, setCodeError] = useState('');
   const { user } = useContext(AuthContext);
 
@@ -187,10 +264,10 @@ const AdminPanel = () => {
     e.preventDefault();
     setCodeError('');
     try {
-      const payload = { label: newCode.label, max_redemptions: Number(newCode.max_redemptions), months: Number(newCode.months) };
-      if (newCode.code.trim()) payload.code = newCode.code.trim();
+      const payload = { label: newCode.label, max_redemptions: Number(newCode.max_redemptions), months: Number(newCode.months), replace_previous: newCode.replace_previous };
+      if (newCode.code.replace(/-/g, '').trim()) payload.code = newCode.code;
       await axios.post(`${API}/admin/redemption-codes`, payload);
-      setNewCode({ label: '', max_redemptions: 300, months: 6, code: '' });
+      setNewCode({ label: '', max_redemptions: 300, months: 12, code: '', replace_previous: true });
       fetchCodes();
     } catch (error) {
       setCodeError(error.response?.data?.detail || 'Errore durante la creazione del codice');
@@ -241,15 +318,26 @@ const AdminPanel = () => {
     setStudentError('');
     try {
       await axios.post(`${API}/admin/students`, newStudent);
-      setNewStudent({ username: '', password: '', months: 6 });
+      setNewStudent({ username: '', password: '', months: 12 });
       fetchStudents();
     } catch (error) {
       setStudentError(error.response?.data?.detail || 'Errore durante la creazione dello studente');
     }
   };
 
+  const reactivateStudent = async (studentId, username) => {
+    const months = Number(extendMonths[studentId] || 12);
+    if (!window.confirm(`Riattivare "${username}" per ${months} mesi a partire da oggi?`)) return;
+    try {
+      await axios.post(`${API}/admin/students/${studentId}/reactivate`, { months });
+      fetchStudents();
+    } catch (error) {
+      console.error('Error reactivating student:', error);
+    }
+  };
+
   const extendStudent = async (studentId) => {
-    const months = extendMonths[studentId] || 6;
+    const months = extendMonths[studentId] || 12;
     try {
       await axios.post(`${API}/admin/students/${studentId}/extend`, { months: Number(months) });
       fetchStudents();
@@ -537,6 +625,13 @@ const AdminPanel = () => {
                           >
                             Estendi
                           </button>
+                          <button
+                            onClick={() => reactivateStudent(s.id, s.username)}
+                            className="text-leaf-600 hover:text-leaf-700 text-xs font-medium"
+                            title="Riparte da oggi (12 mesi se il campo è vuoto)"
+                          >
+                            Riattiva da oggi
+                          </button>
                         </div>
                       </td>
                       <td className="py-2">
@@ -628,13 +723,12 @@ const AdminPanel = () => {
               required
               className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
             />
-            <input
-              type="text"
-              placeholder="Codice (vuoto = automatico)"
-              value={newCode.code}
-              onChange={(e) => setNewCode({ ...newCode, code: e.target.value })}
-              className="bg-paper border border-navy-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-600"
-            />
+            <div className="col-span-full sm:order-last">
+              <label className="block text-xs text-navy-400 mb-1">Codice del manuale: 4 gruppi da 5 caratteri (lascia vuoto per generarlo in automatico)</label>
+              <div className="max-w-md">
+                <CodeInput value={newCode.code} onChange={(v) => setNewCode({ ...newCode, code: v })} />
+              </div>
+            </div>
             <input
               type="number"
               min="1"
@@ -660,6 +754,14 @@ const AdminPanel = () => {
             >
               Crea Codice
             </button>
+            <label className="flex items-center gap-2 text-sm text-navy-600 col-span-full">
+              <input
+                type="checkbox"
+                checked={newCode.replace_previous}
+                onChange={(e) => setNewCode({ ...newCode, replace_previous: e.target.checked })}
+              />
+              Sostituisce i codici precedenti: restano validi altri 6 mesi, poi scadono
+            </label>
           </form>
           {codeError && <div className="text-brick-500 text-sm mb-4">{codeError}</div>}
 
@@ -692,6 +794,11 @@ const AdminPanel = () => {
                           <span className="text-leaf-600 font-medium">Attivo</span>
                         ) : (
                           <span className="text-brick-500 font-medium">Disattivo</span>
+                        )}
+                        {c.active && c.valid_until && (
+                          <div className={`text-xs ${c.expired ? 'text-brick-500' : 'text-navy-400'}`}>
+                            {c.expired ? 'scaduto il ' : 'valido fino al '}{formatDate(c.valid_until)}
+                          </div>
                         )}
                       </td>
                       <td className="py-2">
@@ -1005,14 +1112,8 @@ const LoginPage = () => {
                   <label className="block text-sm font-medium text-navy-900 mb-2">
                     Codice del libro
                   </label>
-                  <input
-                    type="text"
-                    value={bookCode}
-                    onChange={(e) => setBookCode(e.target.value)}
-                    placeholder="Lo trovi nelle pagine del manuale"
-                    className="w-full px-4 py-3 bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors font-mono"
-                    required
-                  />
+                  <CodeInput value={bookCode} onChange={setBookCode} required />
+                  <p className="text-xs text-navy-400 mt-1">Lo trovi nelle pagine del manuale. Puoi anche incollarlo tutto in una casella.</p>
                 </div>
               )}
 
