@@ -462,12 +462,13 @@ def validate_poi_format(poi_data: Dict[str, Any]) -> bool:
     return True
 
 # Book codes look like XXXXX-XXXXX-XXXXX-XXXXX (4 groups of 5 letters/digits).
-CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I to avoid misreading
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"  # upper+lower+digits, no look-alikes (0 O o 1 l I)
 
 def format_book_code(raw: str) -> Optional[str]:
     """Returns the canonical XXXXX-XXXXX-XXXXX-XXXXX form of a typed code
-    (ignores case, dashes and spaces), or None if it isn't 20 characters."""
-    compact = re.sub(r"[^A-Z0-9]", "", (raw or "").upper())
+    (ignores dashes and spaces; upper/lower case ARE significant), or None
+    if it isn't 20 characters."""
+    compact = re.sub(r"[^A-Za-z0-9]", "", raw or "")
     if len(compact) != 20:
         return None
     return "-".join(compact[i:i + 5] for i in range(0, 20, 5))
@@ -490,7 +491,7 @@ async def register_with_code(data: CodeRegister, _rl: None = Depends(rate_limit(
     # Atomic: only succeeds if the code exists, is active, and still has
     # redemptions left — the increment happens in the same operation so two
     # near-simultaneous redemptions can't both slip through past the limit.
-    code_normalized = data.code.strip().upper()
+    code_normalized = data.code.strip()
     # Accept the code with or without dashes/spaces; older codes in another
     # format are still matched exactly as typed.
     candidates = [code_normalized]
