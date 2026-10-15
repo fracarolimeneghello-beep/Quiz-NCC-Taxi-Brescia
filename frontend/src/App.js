@@ -127,16 +127,36 @@ const AuthProvider = ({ children }) => {
 // Book code entry: 4 groups of 5 characters (XXXXX-XXXXX-XXXXX-XXXXX). Typing
 // jumps to the next group by itself, pasting a whole code spreads it over
 // the four boxes, and Backspace on an empty box goes back to the previous one.
-// `value` is the 4 groups joined by "-" (e.g. "AB12C--" while half typed).
+// Upper/lower case are significant. `value` is the 4 groups joined by "-" (e.g. "AB12C--" while half typed).
 const CODE_GROUPS = 4;
 const CODE_GROUP_LEN = 5;
+// Random code from the browser's secure generator (rejection sampling, so
+// every character is equally likely). Optionally leaves out look-alikes.
+const generateBookCode = (avoidAmbiguous = true) => {
+  let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  if (avoidAmbiguous) alphabet = alphabet.replace(/[0O1lIo]/g, '');
+  const limit = Math.floor(256 / alphabet.length) * alphabet.length;
+  const group = () => {
+    let out = '';
+    while (out.length < CODE_GROUP_LEN) {
+      const buf = new Uint8Array(16);
+      window.crypto.getRandomValues(buf);
+      for (const b of buf) {
+        if (b < limit && out.length < CODE_GROUP_LEN) out += alphabet[b % alphabet.length];
+      }
+    }
+    return out;
+  };
+  return Array.from({ length: CODE_GROUPS }, group).join('-');
+};
+
 const CodeInput = ({ value, onChange, required }) => {
   const refs = useRef([]);
   const parts = Array.from({ length: CODE_GROUPS }, (_, i) => ((value || '').split('-')[i] || ''));
   const emit = (arr) => onChange(arr.join('-'));
 
   const handleChange = (i, raw) => {
-    const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const clean = raw.replace(/[^A-Za-z0-9]/g, '');
     const next = [...parts];
     if (clean.length <= CODE_GROUP_LEN) {
       next[i] = clean;
@@ -187,13 +207,13 @@ const CodeInput = ({ value, onChange, required }) => {
             onKeyDown={(e) => handleKeyDown(i, e)}
             onFocus={(e) => e.target.select()}
             placeholder="XXXXX"
-            autoCapitalize="characters"
+            autoCapitalize="none"
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             required={required}
             aria-label={`Codice, gruppo ${i + 1} di ${CODE_GROUPS}`}
-            className="min-w-0 flex-1 w-full px-1 py-2 text-center text-base font-mono uppercase tracking-wider bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors placeholder:text-navy-200"
+            className="min-w-0 flex-1 w-full px-1 py-2 text-center text-base font-mono tracking-wider bg-paper border border-navy-200 rounded-lg focus:ring-2 focus:ring-navy-600 focus:border-transparent focus:bg-white outline-none transition-colors placeholder:text-navy-200"
           />
         </React.Fragment>
       ))}
@@ -218,6 +238,7 @@ const AdminPanel = () => {
   const [codesLoading, setCodesLoading] = useState(false);
   const [newCode, setNewCode] = useState({ label: '', max_redemptions: 300, months: 12, code: '', replace_previous: true });
   const [codeError, setCodeError] = useState('');
+  const [avoidAmbiguous, setAvoidAmbiguous] = useState(true);
   const { user } = useContext(AuthContext);
 
   const subjects = [
@@ -727,6 +748,27 @@ const AdminPanel = () => {
               <label className="block text-xs text-navy-400 mb-1">Codice del manuale: 4 gruppi da 5 caratteri (lascia vuoto per generarlo in automatico)</label>
               <div className="max-w-md">
                 <CodeInput value={newCode.code} onChange={(v) => setNewCode({ ...newCode, code: v })} />
+              </div>
+              <div className="flex flex-wrap items-center gap-4 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewCode({ ...newCode, code: generateBookCode(avoidAmbiguous) })}
+                  className="text-sm font-medium text-navy-600 hover:text-navy-900"
+                >
+                  🎲 Genera codice casuale
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { try { navigator.clipboard.writeText(newCode.code); } catch (e) { /* ignore */ } }}
+                  disabled={!newCode.code.replace(/-/g, '')}
+                  className="text-sm font-medium text-navy-600 hover:text-navy-900 disabled:opacity-40"
+                >
+                  Copia
+                </button>
+                <label className="flex items-center gap-2 text-xs text-navy-400">
+                  <input type="checkbox" checked={avoidAmbiguous} onChange={(e) => setAvoidAmbiguous(e.target.checked)} />
+                  Evita caratteri simili (0 O o 1 l I)
+                </label>
               </div>
             </div>
             <input
