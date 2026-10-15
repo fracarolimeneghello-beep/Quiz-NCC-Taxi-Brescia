@@ -99,7 +99,7 @@ class ChangePassword(BaseModel):
 class StudentCreate(BaseModel):
     username: str
     password: str
-    months: int = 6
+    months: int = 12
 
 class StudentExtend(BaseModel):
     months: int
@@ -107,8 +107,12 @@ class StudentExtend(BaseModel):
 class RedemptionCodeCreate(BaseModel):
     label: str
     max_redemptions: int
-    months: int = 6
+    months: int = 12
     code: Optional[str] = None  # auto-generated if not provided
+    # When True (default), every other code still without an end date stays
+    # valid for another 6 months and then stops working — so readers of the
+    # old printed edition can still register after a new code is issued.
+    replace_previous: bool = True
 
 class CodeRegister(BaseModel):
     username: str
@@ -457,6 +461,20 @@ def validate_poi_format(poi_data: Dict[str, Any]) -> bool:
         return False
     return True
 
+# Book codes look like XXXXX-XXXXX-XXXXX-XXXXX (4 groups of 5 letters/digits).
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I to avoid misreading
+
+def format_book_code(raw: str) -> Optional[str]:
+    """Returns the canonical XXXXX-XXXXX-XXXXX-XXXXX form of a typed code
+    (ignores case, dashes and spaces), or None if it isn't 20 characters."""
+    compact = re.sub(r"[^A-Z0-9]", "", (raw or "").upper())
+    if len(compact) != 20:
+        return None
+    return "-".join(compact[i:i + 5] for i in range(0, 20, 5))
+
+def generate_book_code() -> str:
+    return "-".join("".join(secrets.choice(CODE_ALPHABET) for _ in range(5)) for _ in range(4))
+
 # Auth endpoints
 # Open self-registration is disabled (accounts are otherwise admin-provisioned
 # for students) — but anyone with a valid redemption code (e.g. printed in
@@ -473,10 +491,23 @@ async def register_with_code(data: CodeRegister, _rl: None = Depends(rate_limit(
     # redemptions left — the increment happens in the same operation so two
     # near-simultaneous redemptions can't both slip through past the limit.
     code_normalized = data.code.strip().upper()
+    # Accept the code with or without dashes/spaces; older codes in another
+    # format are still matched exactly as typed.
+    candidates = [code_normalized]
+    formatted = format_book_code(data.code)
+    if formatted and formatted not in candidates:
+        candidates.append(formatted)
+    now_utc = datetime.utcnow()
     redemption = await db.redemption_codes.find_one_and_update(
         {
-            "code": code_normalized,
+            "code": {"$in": candidates},
             "active": True,
+            # A superseded code keeps working until its grace period ends
+            "$or": [
+                {"valid_until": {"$exists": False}},
+                {"valid_until": None},
+                {"valid_until": {"$gt": now_utc}},
+            ],
             "$expr": {"$lt": ["$redeemed_count", "$max_redemptions"]}
         },
         {"$inc": {"redeemed_count": 1}}
@@ -488,7 +519,7 @@ async def register_with_code(data: CodeRegister, _rl: None = Depends(rate_limit(
         username=data.username,
         password_hash=hash_password(data.password),
         is_admin=False,
-        expires_at=add_months(datetime.utcnow(), redemption.get("months", 6))
+        expires_at=add_months(datetime.utcnow(), redemption.get("months", 12))
     )
     await db.users.insert_one(user.dict())
 
@@ -613,6 +644,20 @@ async def extend_student(student_id: str, data: StudentExtend, admin_user: User 
         base = datetime.utcnow()
     new_expiry = add_months(base, data.months)
 
+    await db.users.update_one({"id": student_id}, {"$set": {"expires_at": new_expiry}})
+    return {"id": student_id, "expires_at": new_expiry.isoformat() + "Z"}
+
+@api_router.post("/admin/students/{student_id}/reactivate")
+async def reactivate_student(student_id: str, data: StudentExtend = StudentExtend(months=12),
+                              admin_user: User = Depends(get_admin_user)):
+    """Restarts the access period from today (default 12 months), whether the
+    account is expired or still running."""
+    student = await db.users.find_one({"id": student_id, "is_admin": False})
+    if not student:
+        raise HTTPException(status_code=404, detail="Studente non trovato")
+    if not (1 <= data.months <= 60):
+        raise HTTPException(status_code=400, detail="Durata non valida (1-60 mesi)")
+    new_expiry = add_months(datetime.utcnow(), data.months)
     await db.users.update_one({"id": student_id}, {"$set": {"expires_at": new_expiry}})
     return {"id": student_id, "expires_at": new_expiry.isoformat() + "Z"}
 
@@ -998,10 +1043,25 @@ async def create_redemption_code(data: RedemptionCodeCreate, admin_user: User = 
     if not (1 <= data.months <= 60):
         raise HTTPException(status_code=400, detail="Durata non valida (1-60 mesi)")
 
-    code = (data.code or f"NCC-{secrets.token_hex(4).upper()}").strip().upper()
+    if data.code and data.code.strip():
+        code = format_book_code(data.code)
+        if not code:
+            raise HTTPException(status_code=400, detail="Il codice deve avere 4 gruppi da 5 caratteri (XXXXX-XXXXX-XXXXX-XXXXX)")
+    else:
+        code = generate_book_code()
+        while await db.redemption_codes.find_one({"code": code}):
+            code = generate_book_code()
     existing = await db.redemption_codes.find_one({"code": code})
     if existing:
         raise HTTPException(status_code=400, detail="Questo codice esiste già")
+
+    if data.replace_previous:
+        # Old codes stay valid for 6 more months from now (only those that
+        # don't already have an end date, so repeated changes don't extend them).
+        await db.redemption_codes.update_many(
+            {"active": True, "$or": [{"valid_until": {"$exists": False}}, {"valid_until": None}]},
+            {"$set": {"valid_until": add_months(datetime.utcnow(), 6)}}
+        )
 
     record = {
         "id": str(uuid.uuid4()),
@@ -1011,6 +1071,7 @@ async def create_redemption_code(data: RedemptionCodeCreate, admin_user: User = 
         "redeemed_count": 0,
         "months": data.months,
         "active": True,
+        "valid_until": None,
         "created_at": datetime.utcnow()
     }
     await db.redemption_codes.insert_one(record)
@@ -1026,8 +1087,10 @@ async def list_redemption_codes(admin_user: User = Depends(get_admin_user)):
             "label": c.get("label", ""),
             "redeemed_count": c.get("redeemed_count", 0),
             "max_redemptions": c["max_redemptions"],
-            "months": c.get("months", 6),
+            "months": c.get("months", 12),
             "active": c.get("active", True),
+            "valid_until": c["valid_until"].isoformat() + "Z" if c.get("valid_until") else None,
+            "expired": bool(c.get("valid_until")) and c["valid_until"] < datetime.utcnow(),
             "created_at": c["created_at"].isoformat() + "Z"
         }
         for c in codes
@@ -1042,7 +1105,7 @@ async def deactivate_redemption_code(code_id: str, admin_user: User = Depends(ge
 
 @api_router.post("/admin/redemption-codes/{code_id}/activate")
 async def activate_redemption_code(code_id: str, admin_user: User = Depends(get_admin_user)):
-    result = await db.redemption_codes.update_one({"id": code_id}, {"$set": {"active": True}})
+    result = await db.redemption_codes.update_one({"id": code_id}, {"$set": {"active": True, "valid_until": None}})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Codice non trovato")
     return {"message": "Codice riattivato"}
